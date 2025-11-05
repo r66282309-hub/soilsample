@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebGIS – Punti con label (Leaflet + Supabase)</title>
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; }
+    .panel {
+      position: absolute; top: 12px; left: 12px; z-index: 1000;
+      background: #fff; padding: 10px 12px; border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.15); font-family: system-ui, sans-serif;
+      max-width: 360px;
+    }
+    .panel h3 { margin: 0 0 8px; font-size: 16px; }
+    .panel label { display:block; font-size: 12px; margin-top: 8px; }
+    .panel input { width: 100%; padding: 6px 8px; font-size: 14px; }
+    .panel .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .panel button { margin-top: 10px; width: 100%; padding: 8px 10px; font-size: 14px; cursor: pointer; }
+    .panel .actions { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .leaflet-tooltip.name-label { background: rgba(255,255,255,.9); color:#111; border:1px solid #ddd; font-weight:600; padding:2px 6px; border-radius:6px; }
+    .note { font-size: 12px; color:#333; margin-top:6px; }
+    .toggle { display:flex; align-items:center; gap:8px; margin-top: 6px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="panel">
+    <h3>Aggiungi punto (con label)</h3>
+    <label for="name">Nome</label>
+    <input id="name" placeholder="Es. Punto A" />
+
+    <div class="row">
+      <div>
+        <label for="lat">Latitudine</label>
+        <input id="lat" placeholder="Es. 40.726" />
+      </div>
+      <div>
+        <label for="lon">Longitudine</label>
+        <input id="lon" placeholder="Es. 9.000" />
+      </div>
+    </div>
+
+    <div class="toggle">
+      <input type="checkbox" id="saveCloud" />
+      <label for="saveCloud">Salva su cloud (Supabase) oltre che in locale</label>
+    </div>
+
+    <button id="addBtn">Aggiungi alla mappa</button>
+    <div class="actions">
+      <button id="exportBtn" title="Scarica i punti locali come GeoJSON">Esporta GeoJSON (locale)</button>
+      <button id="clearBtn" title="Cancella i punti salvati localmente">Reset locale</button>
+    </div>
+    <p class="note">Suggerimento: clicca sulla mappa per compilare <em>lat</em> e <em>lon</em>.</p>
+    <p class="note">I punti inseriti vengono sempre salvati nel tuo browser (<strong>localStorage</strong>). Se attivi "Salva su cloud", verranno salvati anche su Supabase e diventeranno visibili a tutti.</p>
+  </div>
+
+  <script>
+    // =========================
+    //  CONFIGURAZIONE
+    // =========================
+    // Inquadra la Sardegna
+    const START_VIEW = [40.0, 9.0];
+    const START_ZOOM = 8;
+
+    // Punto al tuo GeoJSON nel repo (semi-permanente, mantenuto da te)
+    const GEOJSON_URL = 'points.geojson';
+
+    // Salvataggio locale (per utente)
+    const LS_KEY = 'webgis_user_points_v1';
+
+    // ---- Supabase (inserisci le tue chiavi) ----
+    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+    const supabase = (SUPABASE_URL.includes('YOUR-') ? null : window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
+
+    // =========================
+    //  MAPPA
+    // =========================
+    const map = L.map('map').setView(START_VIEW, START_ZOOM);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const seedLayer = L.geoJSON(null, {
+      pointToLayer: (feature, latlng) => {
+        const marker = L.marker(latlng);
+        const name = feature?.properties?.name || feature?.properties?.Nome || '';
+        if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -10], className: 'name-label' });
+        if (feature?.properties) marker.bindPopup(`<pre>${escapeHtml(JSON.stringify(feature.properties, null, 2))}</pre>`);
+        return marker;
+      }
+    }).addTo(map);
+
+    const localLayer = L.layerGroup().addTo(map);    // punti del browser
+    const cloudLayer = L.layerGroup().addTo(map);    // punti da Supabase (globali)
+
+    // =========================
+    //  UTILITY
+    // =========================
+    function escapeHtml(unsafe) {
+      return unsafe
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function isValidLatLon(lat, lon) {
+      return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    function addLocalPoint(name, lat, lon, save = true) {
+      const marker = L.marker([lat, lon]).addTo(localLayer);
+      if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -10], className: 'name-label' });
+      marker.bindPopup(`<b>${escapeHtml(name)}</b><br/>Lat: ${lat.toFixed(6)}<br/>Lon: ${lon.toFixed(6)}`);
+      if (save) {
+        const pts = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+        pts.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name } });
+        localStorage.setItem(LS_KEY, JSON.stringify(pts));
+      }
+    }
+
+    function loadLocalPoints() {
+      try {
+        const pts = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+        pts.forEach(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          addLocalPoint(f.properties?.name || '', lat, lon, false);
+        });
+      } catch (e) { console.warn('Local points parse error', e); }
+    }
+
+    function exportLocalGeoJSON() {
+      const features = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      const fc = { type: 'FeatureCollection', features };
+      const blob = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'user_points.geojson'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function addCloudPoint(name, lat, lon) {
+      const marker = L.marker([lat, lon]).addTo(cloudLayer);
+      if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -10], className: 'name-label' });
+      marker.bindPopup(`<b>${escapeHtml(name)}</b><br/>Lat: ${lat.toFixed(6)}<br/>Lon: ${lon.toFixed(6)}<br/><i>Supabase</i>`);
+    }
+
+    async function loadSupabasePoints() {
+      if (!supabase) return; // non configurato
+      const { data, error } = await supabase
+        .from('points')
+        .select('id,name,lat,lon')
+        .order('created_at', { ascending: false })
+        .limit(5000);
+      if (error) { console.warn('Supabase SELECT error:', error.message); return; }
+      cloudLayer.clearLayers();
+      const latlngs = [];
+      data.forEach(row => {
+        if (isValidLatLon(row.lat, row.lon)) {
+          addCloudPoint(row.name || '', row.lat, row.lon);
+          latlngs.push([row.lat, row.lon]);
+        }
+      });
+      if (latlngs.length) {
+        const b = L.latLngBounds(latlngs);
+        if (b.isValid()) map.fitBounds(b.pad(0.25));
+      }
+    }
+
+    async function insertSupabasePoint(name, lat, lon) {
+      if (!supabase) return { ok:false, msg:'Supabase non configurato' };
+      // opzionale: lato client puoi normalizzare name e truncarlo
+      const safeName = (name || '').slice(0,80);
+      const { data, error } = await supabase
+        .from('points')
+        .insert([{ name: safeName, lat, lon }])
+        .select('id')
+        .single();
+      if (error) return { ok:false, msg:error.message };
+      return { ok:true, id:data.id };
+    }
+
+    // =========================
+    //  EVENTI UI
+    // =========================
+    document.getElementById('addBtn').addEventListener('click', async () => {
+      const name = document.getElementById('name').value.trim();
+      const lat = parseFloat(document.getElementById('lat').value.replace(',', '.'));
+      const lon = parseFloat(document.getElementById('lon').value.replace(',', '.'));
+      const saveCloud = document.getElementById('saveCloud').checked;
+
+      if (!isValidLatLon(lat, lon)) {
+        alert('Lat/Lon non validi. Esempio lat 40.726, lon 9.000');
+        return;
+      }
+
+      // A) sempre locale
+      addLocalPoint(name, lat, lon, true);
+
+      // B) opzionale su cloud
+      if (saveCloud) {
+        const res = await insertSupabasePoint(name, lat, lon);
+        if (!res.ok) {
+          alert('Errore salvataggio su cloud: ' + res.msg);
+        } else {
+          // ricarica i punti cloud per mostrarli subito
+          await loadSupabasePoints();
+        }
+      }
+    });
+
+    document.getElementById('exportBtn').addEventListener('click', exportLocalGeoJSON);
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      if (confirm('Cancellare i punti salvati localmente?')) {
+        localStorage.removeItem(LS_KEY);
+        localLayer.clearLayers();
+      }
+    });
+
+    // Clic mappa per compilare lat/lon
+    map.on('click', (e) => {
+      document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+      document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+    });
+
+    // =========================
+    //  AVVIO
+    // =========================
+    // 1) Carica i punti seed dal tuo GeoJSON (manutenzione a repo)
+    fetch(GEOJSON_URL)
+      .then(r => { if (!r.ok) throw new Error('GeoJSON non trovato: ' + GEOJSON_URL); return r.json(); })
+      .then(data => { seedLayer.addData(data); })
+      .catch(err => console.warn('Seed GeoJSON:', err.message));
+
+    // 2) Ricostruisci i punti locali dal browser
+    loadLocalPoints();
+
+    // 3) Carica i punti globali da Supabase (se configurato)
+    if (supabase) loadSupabasePoints();
+  </script>
+</body>
+</html>
