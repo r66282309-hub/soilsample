@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Uniss Soil Sample</title>
+
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- JSZip per creare KMZ -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#ffffff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --brand:#2563eb;
+      --surface:#f8fafc; --shadow:0 6px 20px rgba(2,6,23,.12);
+      --radius:12px;
+    }
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; }
+
+    .panel {
+      position: absolute; top: 12px; left: 12px; z-index: 1000;
+      background: var(--bg); padding: 14px; border-radius: var(--radius);
+      box-shadow: var(--shadow); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      width: min(360px, calc(100% - 24px));
+      border: 1px solid var(--line);
+    }
+    .panel h3 {
+      margin: 0 0 8px; font-size: 18px; font-weight: 700; color: var(--ink);
+    }
+    .field { margin-top: 10px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input[type="text"],
+    input:not([type]),
+    input[type="search"]{
+      width: 100%; padding: 8px 10px; font-size: 14px; color: var(--ink);
+      border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+      outline: none;
+    }
+    input:focus{ border-color: var(--brand); background: #fff; }
+
+    .toggle {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 10px; user-select: none;
+    }
+    .toggle input[type="checkbox"]{
+      width: 18px; height: 18px; accent-color: var(--brand); cursor: pointer;
+      margin: 0;
+    }
+    .toggle span{ font-size: 14px; color: var(--ink); }
+
+    .btn {
+      width: 100%; padding: 10px 12px; margin-top: 10px;
+      border-radius: 10px; border: 1px solid var(--line);
+      background: #fff; color: var(--ink); font-size: 14px; cursor: pointer;
+    }
+    .btn.primary{
+      background: var(--brand); color: #fff; border: none;
+    }
+    .btn:active{ transform: translateY(1px); }
+
+    .actions{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+
+    .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.35; }
+
+    .icon-row{
+      display:flex; align-items:center; gap:10px; margin-top: 10px;
+    }
+    .icon-btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      width: 40px; height: 40px; border-radius: 999px; border: 1px solid var(--line);
+      background:#fff; cursor:pointer; box-shadow: var(--shadow);
+    }
+    .icon-btn svg{ width: 20px; height: 20px; }
+
+    .gps-ok{ color: #059669; }
+    .gps-bad{ color: #dc2626; }
+
+    .leaflet-tooltip.name-label {
+      background: rgba(255,255,255,.92); color:#111; border:1px solid #ddd;
+      font-weight:600; padding:2px 6px; border-radius:6px;
+    }
+
+    /* ===== Modal elenco punti ===== */
+    .modal-backdrop{
+      position: fixed; inset: 0; background: rgba(2,6,23,.45);
+      display: none; align-items: center; justify-content: center; z-index: 2000;
+    }
+    .modal{
+      width: min(520px, calc(100% - 24px));
+      background: var(--bg); border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: var(--shadow); padding: 12px;
+      max-height: 70vh; display: flex; flex-direction: column;
+    }
+    .modal header{
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+      border-bottom: 1px solid var(--line); padding: 8px 4px; margin-bottom: 8px;
+    }
+    .modal h4{ margin:0; font-size:16px; color:var(--ink) }
+    .modal .close{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+    .modal .list{
+      overflow:auto; padding: 6px 2px; display: grid; gap: 6px;
+    }
+    .point-item{
+      display:grid; grid-template-columns: 1fr auto; gap: 8px; align-items:center;
+      border:1px solid var(--line); border-radius:10px; padding:8px 10px; background:var(--surface);
+    }
+    .point-item .meta{ font-size: 12px; color: var(--muted); }
+    .point-item .go{
+      padding:6px 10px; border-radius:8px; border:1px solid var(--line);
+      background:#fff; cursor:pointer;
+    }
+    .modal .search{
+      margin: 6px 0 10px;
+    }
+    .modal input[type="search"]{
+      width:100%;
+      padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--surface);
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="panel">
+    <h3>Uniss Soil Sample</h3>
+
+    <div class="field">
+      <label for="name">Nome</label>
+      <input id="name" placeholder="Es. Punto A" autocomplete="off" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="lat">Latitudine</label>
+        <input id="lat" placeholder="Es. 40.726" inputmode="decimal" />
+      </div>
+      <div class="field">
+        <label for="lon">Longitudine</label>
+        <input id="lon" placeholder="Es. 9.000" inputmode="decimal" />
+      </div>
+    </div>
+
+    <!-- Sempre spuntato -->
+    <label class="toggle">
+      <input type="checkbox" id="saveCloud" checked />
+      <span>Salva su cloud (Supabase)</span>
+    </label>
+
+    <button id="addBtn" class="btn primary">Aggiungi alla mappa</button>
+
+    <div class="actions">
+      <button id="exportKmzBtn" class="btn" title="Esporta punti della mappa">Esporta punti</button>
+      <button id="clearBtn" class="btn" title="Cancella i punti in locale">Reset locale</button>
+    </div>
+
+    <!-- Nuovo: elenco punti -->
+    <button id="listBtn" class="btn" title="Mostra l'elenco dei punti caricati da Supabase">Elenco punti</button>
+
+    <div class="icon-row">
+      <button id="gpsOnceBtn" class="icon-btn" title="Attiva GPS">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="3" stroke-width="2"/>
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="8" stroke-width="2" />
+        </svg>
+      </button>
+      <p class="note" id="gpsStatus">GPS inattivo</p>
+    </div>
+
+    <p class="note"></p>
+  </div>
+
+  <!-- Modal elenco punti -->
+  <div class="modal-backdrop" id="pointsModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pointsTitle">
+      <header>
+        <h4 id="pointsTitle">Elenco punti (Supabase)</h4>
+        <button class="close" id="closeModalBtn">Chiudi</button>
+      </header>
+      <div class="search">
+        <input id="pointsSearch" type="search" placeholder="Cerca per nome…" />
+      </div>
+      <div class="list" id="pointsList"></div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    //  CONFIG
+    // =========================
+    const START_VIEW = [40.0, 9.0];
+    const START_ZOOM = 8;
+    const GEOJSON_URL = 'points.geojson';
+    const LS_KEY = 'webgis_user_points_v1';
+
+    // Supabase
+    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+    const SUPABASE_ANON_KEY =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // === Nuovo: nome tabella Supabase creata dall'upload del CSV ===
+    // Se in Supabase il nome è diverso, cambia qui (es. 'accuracy_points' o 'accuracy_point')
+    const ACCURACY_TABLE = 'accuracy_points';
+
+    // =========================
+    //  MAPPA
+    // =========================
+    const map = L.map('map').setView(START_VIEW, START_ZOOM);
+    
+    // Basemaps
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const esri = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+      }
+    );
+
+    const opentopo = L.tileLayer(
+      'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      {
+        maxZoom: 17,
+        attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap'
+      }
+    );
+
+    const cartoLight = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+      {
+        maxZoom: 20,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+      }
+    );
+
+    const cartoDark = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {
+        maxZoom: 20,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+      }
+    );
+
+    // Seed GeoJSON (già esistente)
+    const seedLayer  = L.geoJSON(null, {
+      pointToLayer: (feature, latlng) => {
+        const marker = L.marker(latlng);
+        const name = feature?.properties?.name || feature?.properties?.Nome || '';
+        if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -10], className: 'name-label' });
+        if (feature?.properties) marker.bindPopup(`<pre>${escapeHtml(JSON.stringify(feature.properties, null, 2))}</pre>`);
+        return marker;
+      }
+    }).addTo(map);
+
+    const localLayer = L.layerGroup().addTo(map);
+    const cloudLayer = L.layerGroup().addTo(map);
+    const gpsLayer   = L.layerGroup().addTo(map);
+
+    // === Nuovo: layer punti accuratezza da Supabase ===
+    const accuracyLayer = L.layerGroup(); // NON attivo di default
+
+    // Soglia di zoom per mostrare le etichette dei punti accuracy
+    const ACC_LABEL_ZOOM = 14;
+
+    // Piccolo helper per creare stringhe HTML senza annidare template literal
+    function optRow(label, value){
+      if (value === undefined || value === null || value === '') return '';
+      return label ? (label + ': <b>' + escapeHtml(String(value)) + '</b><br>') : (escapeHtml(String(value)) + '<br>');
+    }
+
+    // Layer control
+    const baseLayers = {
+      'OSM Standard': osm,
+      'Ortofoto Esri': esri,
+      'OpenTopoMap': opentopo,
+      'Carto Light': cartoLight,
+      'Carto Dark': cartoDark
+    };
+
+    const overlays = {
+      'Seed (GeoJSON)': seedLayer,
+      'Punti locali': localLayer,
+      'Punti cloud': cloudLayer,
+      'GPS': gpsLayer,
+      // Nuovo overlay attivabile a comando
+      'Punti Legacy': accuracyLayer
+    };
+
+    const layersCtrl = L.control.layers(baseLayers, overlays, { position:'topright', collapsed:false }).addTo(map);
+
+
+
+    // ===== indice marker cloud: id -> { marker, name, lat, lon }
+    const cloudIndex = new Map();
+
+    // =========================
+    //  UTILITY
+    // =========================
+    function escapeHtml(s) {
+      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
+    }
+
+    function isValidLatLon(lat, lon) {
+      return Number.isFinite(lat) && Number.isFinite(lon) &&
+             lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    function buildId(name, lat, lon){
+      // id stabile e univoco per indicizzare i marker
+      return `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}|${(name||'').trim().slice(0,80)}`;
+    }
+
+    // Helper per leggere possibili varianti di nome campo (snake_case, Camel, spazi)
+    function getAny(obj, keys){
+      for (const k of keys){
+        if (k in obj && obj[k] != null && obj[k] !== '') return obj[k];
+        const low = k.toLowerCase();
+        for (const kk of Object.keys(obj)){
+          if (kk.toLowerCase() === low) return obj[kk];
+        }
+      }
+      return undefined;
+    }
+
+    function addLocalPoint(name, lat, lon, save = true) {
+      const m = L.marker([lat, lon]).addTo(localLayer);
+      if (name) m.bindTooltip(name, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
+      m.bindPopup(`<b>${escapeHtml(name || '')}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}`);
+      if (save) {
+        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+        arr.push({ type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{ name: name || '' }});
+        localStorage.setItem(LS_KEY, JSON.stringify(arr));
+      }
+    }
+
+    function loadLocalPoints() {
+      try{
+        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+        arr.forEach(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          addLocalPoint(f.properties?.name || '', lat, lon, false);
+        });
+      }catch(e){ console.warn('Local parse', e); }
+    }
+
+    function addCloudPoint(name, lat, lon) {
+      const m = L.marker([lat,lon]).addTo(cloudLayer);
+      if (name) m.bindTooltip(name, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
+      m.bindPopup(`<b>${escapeHtml(name || '')}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br><i>Supabase</i>`);
+      const id = buildId(name, lat, lon);
+      m.options.customId = id;
+      cloudIndex.set(id, { marker: m, name, lat, lon });
+    }
+
+    async function loadSupabasePoints() {
+      const {data, error} = await supabase
+        .from('points')
+        .select('name,lat,lon')
+        .order('created_at',{ascending:false})
+        .limit(5000);
+      if (error) { console.warn('Supabase SELECT', error.message); return; }
+      cloudLayer.clearLayers();
+      cloudIndex.clear();
+      data.forEach(r => {
+        if (isValidLatLon(r.lat, r.lon)) addCloudPoint(r.name || '', r.lat, r.lon);
+      });
+      // aggiorna l'elenco se aperto
+      if (document.getElementById('pointsModal').style.display === 'flex') {
+        renderPointsList();
+      }
+    }
+
+    async function insertSupabasePoint(name, lat, lon) {
+      const safeName = (name || '').slice(0,80);
+      const { error } = await supabase.from('points').insert([{ name: safeName, lat, lon }]);
+      return !error;
+    }
+
+    // =========================
+    //  NUOVO: punti accuratezza (tabella CSV importata)
+    // =========================
+    let accuracyLoaded = false;
+
+    function addAccuracyPoint(row){
+      // Prova diverse chiavi per compatibilità con colonne importate in modo diverso
+      const lat = Number(getAny(row, ['Lat','lat','latitude']));
+      const lon = Number(getAny(row, ['Lon','lon','lng','long','longitude']));
+      if (!isValidLatLon(lat, lon)) return;
+      const name   = getAny(row, ['Name','Nuovo','name','nome']) || '';
+      const codice = getAny(row, ['CODICE','codice']) || '';
+      const gps    = getAny(row, ['GPS','gps']) || '';
+      const acc1   = getAny(row, ['Accuratezza 1','accuratezza_1','accuratezza1']) || '';
+      const acc2   = getAny(row, ['Accuratezza 2','accuratezza_2','accuratezza2']) || '';
+      const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) ?? '';
+
+      // Colora il marker a seconda dell'accuratezza 2, se disponibile
+      const status = String(acc2).toLowerCase();
+      let color = '#3388ff';
+      if (status.includes('errore')) color = '#dc2626';      // rosso
+      else if (status.includes('verific')) color = '#f59e0b'; // arancio
+      else if (status.includes('corretto') || status.includes('giusto')) color = '#059669'; // verde
+
+      const marker = L.circleMarker([lat,lon], { radius: 6, weight: 2, color, fillOpacity: 0.7 }).addTo(accuracyLayer);
+
+      // Salva il nome sul marker per etichettarlo in base allo zoom
+      marker.options._labelName = name;
+
+      const htmlParts = [];
+      htmlParts.push('<div style="min-width:220px">');
+      htmlParts.push('<div><b>' + escapeHtml(name || '') + '</b></div>');
+      if (codice) htmlParts.push('<div><small>Codice: ' + escapeHtml(codice) + '</small></div>');
+      htmlParts.push('<div style="margin-top:6px; font-size:13px">');
+      htmlParts.push(optRow('GPS', gps));
+      htmlParts.push(optRow('Accuratezza 1', acc1));
+      htmlParts.push(optRow('Accuratezza 2', acc2));
+      htmlParts.push(optRow('Land Degradation', degr));
+      htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
+      htmlParts.push('</div></div>');
+      marker.bindPopup(htmlParts.join(''));
+    }
+
+    // Mostra/nasconde le etichette Name in base al livello di zoom
+    function updateAccuracyLabels(){
+      const show = map.getZoom() >= ACC_LABEL_ZOOM;
+      accuracyLayer.eachLayer((lyr) => {
+        const nm = lyr?.options?._labelName || '';
+        const hasTooltip = !!lyr.getTooltip();
+        if (show && nm && !hasTooltip){
+          lyr.bindTooltip(nm, { permanent:true, direction:'top', offset:[0,-8], className:'name-label' });
+        } else if (!show && hasTooltip){
+          lyr.unbindTooltip();
+        }
+      });
+    }
+
+    async function loadAccuracyPoints(){
+      try{
+        const { data, error } = await supabase
+          .from(ACCURACY_TABLE)
+          .select('*')
+          .limit(20000);
+        if (error) { console.warn('Supabase SELECT accuracy', error.message); alert('Errore nel leggere la tabella di accuratezza.'); return; }
+        accuracyLayer.clearLayers();
+        (data || []).forEach(addAccuracyPoint);
+        accuracyLoaded = true;
+        updateAccuracyLabels(); // sincronizza etichette con zoom corrente
+      }catch(e){ console.warn(e); }
+    }
+
+    // carica solo quando l'utente attiva il layer dal controllo
+    map.on('overlayadd', (e) => {
+      if (e.layer === accuracyLayer && !accuracyLoaded) {
+        loadAccuracyPoints();
+      }
+      if (e.layer === accuracyLayer) {
+        updateAccuracyLabels();
+      }
+    });
+
+    // Aggiorna etichette quando cambia lo zoom
+    map.on('zoomend', updateAccuracyLabels);
+
+    // =========================
+    //  GPS
+    // =========================
+    function setGpsStatus(text, cls=''){
+      const el = document.getElementById('gpsStatus');
+      el.textContent = text;
+      el.classList.remove('gps-ok','gps-bad');
+      if (cls) el.classList.add(cls);
+    }
+
+    function gpsOnce() {
+      if (!('geolocation' in navigator)) {
+        setGpsStatus('GPS non supportato dal browser', 'gps-bad');
+        return;
+      }
+      setGpsStatus('GPS: lettura…');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude:lat, longitude:lon, accuracy:acc } = pos.coords;
+          gpsLayer.clearLayers();
+          const m = L.marker([lat, lon]).addTo(gpsLayer);
+          m.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Acc: ±${Math.round(acc)} m`);
+          if (Number.isFinite(acc)) L.circle([lat,lon], { radius: acc }).addTo(gpsLayer);
+
+          document.getElementById('lat').value = lat.toFixed(6);
+          document.getElementById('lon').value = lon.toFixed(6);
+
+          map.setView([lat,lon], Math.max(map.getZoom(), 15));
+          setGpsStatus(`GPS ok • ±${Math.round(acc)} m`, 'gps-ok');
+        },
+        (err) => {
+          const reasons = {1:'Permesso negato',2:'Posizione non disponibile',3:'Timeout'};
+          setGpsStatus(`Errore GPS: ${reasons[err.code] || err.message}`, 'gps-bad');
+        },
+        { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+      );
+    }
+
+    // =========================
+    //  KMZ: unisce locale + cloud e scarica
+    // =========================
+    function buildKmlFromPoints(points){
+      // points: [{name, lat, lon, src}]
+      const esc = (s) => escapeHtml(String(s ?? ''));
+      const placemarks = points.map(p => `
+        <Placemark>
+          <name>${esc(p.name || '')}</name>
+          <ExtendedData>
+            <Data name="source"><value>${esc(p.src)}</value></Data>
+          </ExtendedData>
+          <Point><coordinates>${p.lon},${p.lat},0</coordinates></Point>
+        </Placemark>
+      `).join('\n');
+
+      // Stile semplice (etichetta visibile)
+      const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>UNISS Soil Sample - Punti</name>
+    <Style id="pt">
+      <IconStyle>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1.0</scale></LabelStyle>
+    </Style>
+    ${placemarks}
+  </Document>
+</kml>`;
+      return kml;
+    }
+
+    async function exportAllKMZ(){
+      // 1) Locale
+      let local = [];
+      try{
+        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+        local = arr.map(f => ({
+          name: f?.properties?.name || '',
+          lat:  Number(f?.geometry?.coordinates?.[1]),
+          lon:  Number(f?.geometry?.coordinates?.[0]),
+          src:  'local'
+        })).filter(p => isValidLatLon(p.lat, p.lon));
+      }catch(e){ /* ignore */ }
+
+      // 2) Cloud (lettura live)
+      let cloud = [];
+      try{
+        const { data, error } = await supabase
+          .from('points')
+          .select('name,lat,lon')
+          .order('created_at',{ascending:false})
+          .limit(5000);
+        if (!error && data) {
+          cloud = data.map(r => ({
+            name: r?.name || '',
+            lat: Number(r?.lat),
+            lon: Number(r?.lon),
+            src: 'cloud'
+          })).filter(p => isValidLatLon(p.lat, p.lon));
+        }
+      }catch(e){ /* ignore */ }
+
+      const all = [...local, ...cloud];
+      if (!all.length) {
+        alert('Nessun punto da esportare.');
+        return;
+      }
+
+      const kml = buildKmlFromPoints(all);
+      const zip = new JSZip();
+      zip.file('doc.kml', kml);
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'points.kmz'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // =========================
+    //  MODAL ELENCO PUNTI
+    // =========================
+    const pointsModal = document.getElementById('pointsModal');
+    const pointsList  = document.getElementById('pointsList');
+    const pointsSearch= document.getElementById('pointsSearch');
+
+    function openPointsModal(){
+      renderPointsList();
+      pointsModal.style.display = 'flex';
+      pointsSearch.value = '';
+      pointsSearch.focus();
+    }
+    function closePointsModal(){
+      pointsModal.style.display = 'none';
+    }
+
+    function renderPointsList(){
+      // Prende i dati dall'indice cloud (cioè i punti effettivamente in mappa)
+      const items = Array.from(cloudIndex.values())
+        .map(({name, lat, lon, marker}) => ({
+          id: marker.options.customId,
+          name: name || '',
+          lat: Number(lat),
+          lon: Number(lon)
+        }));
+
+      const q = (pointsSearch.value || '').toLowerCase().trim();
+      const filt = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items;
+
+      if (!filt.length){
+        pointsList.innerHTML = `<div class="note" style="padding:6px 2px;">Nessun punto da mostrare.</div>`;
+        return;
+      }
+
+      pointsList.innerHTML = filt.map(it => `
+        <div class="point-item">
+          <div>
+            <div><strong>${escapeHtml(it.name || '(senza nome)')}</strong></div>
+            <div class="meta">Lat: ${it.lat.toFixed(6)} • Lon: ${it.lon.toFixed(6)}</div>
+          </div>
+          <button class="go" data-id="${it.id}" title="Zoom al punto">Vai</button>
+        </div>
+      `).join('');
+    }
+
+    function zoomToPointById(id){
+      const rec = cloudIndex.get(id);
+      if (!rec) return;
+      const { marker, lat, lon } = rec;
+      map.setView([lat, lon], Math.max(map.getZoom(), 17), { animate: true });
+      // Se il marker ha un popup, aprilo; altrimenti apri un tooltip temporaneo
+      if (marker.getPopup()) marker.openPopup();
+      else marker.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}`).openPopup();
+    }
+
+    // =========================
+    //  EVENTI
+    // =========================
+    document.getElementById('addBtn').addEventListener('click', async () => {
+      const name = document.getElementById('name').value.trim();
+      const lat = parseFloat(document.getElementById('lat').value.replace(',', '.'));
+      const lon = parseFloat(document.getElementById('lon').value.replace(',', '.'));
+      const saveCloud = document.getElementById('saveCloud').checked;
+
+      if (!isValidLatLon(lat, lon)) {
+        alert('Lat/Lon non validi. Esempio lat 40.726, lon 9.000');
+        return;
+      }
+
+      addLocalPoint(name, lat, lon);
+
+      if (saveCloud) {
+        const ok = await insertSupabasePoint(name, lat, lon);
+        if (!ok) alert('Errore salvataggio su cloud');
+        else loadSupabasePoints();
+      }
+    });
+
+    document.getElementById('exportKmzBtn').addEventListener('click', exportAllKMZ);
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      if (confirm('Cancellare i punti salvati localmente?')) {
+        localStorage.removeItem(LS_KEY);
+        localLayer.clearLayers();
+      }
+    });
+
+    document.getElementById('gpsOnceBtn').addEventListener('click', gpsOnce);
+
+    map.on('click', (e) => {
+      document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+      document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+    });
+
+    // Modal events
+    document.getElementById('listBtn').addEventListener('click', openPointsModal);
+    document.getElementById('closeModalBtn').addEventListener('click', closePointsModal);
+    document.getElementById('pointsModal').addEventListener('click', (e) => {
+      // Chiudi cliccando sul backdrop
+      if (e.target === document.getElementById('pointsModal')) closePointsModal();
+    });
+    pointsSearch.addEventListener('input', renderPointsList);
+    // Delegazione click sui bottoni "Vai"
+    pointsList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button.go');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      zoomToPointById(id);
+      // opzionale: chiudi il modal dopo il goto
+      // closePointsModal();
+    });
+
+    // =========================
+    //  AVVIO
+    // =========================
+    fetch(GEOJSON_URL)
+      .then(r => { if (!r.ok) throw new Error('GeoJSON non trovato'); return r.json(); })
+      .then(j => seedLayer.addData(j))
+      .catch(()=>{});
+
+    loadLocalPoints();
+    loadSupabasePoints();
+
+    // =========================
+    //  TEST DI SANITÀ (console)
+    // =========================
+    try {
+      console.assert(typeof L !== 'undefined', 'Leaflet presente');
+      console.assert(map instanceof L.Map, 'Mappa inizializzata');
+      console.assert(typeof supabase !== 'undefined', 'Supabase client presente');
+      console.assert(typeof loadAccuracyPoints === 'function', 'Funzione loadAccuracyPoints definita');
+      console.assert(typeof updateAccuracyLabels === 'function', 'Funzione updateAccuracyLabels definita');
+    } catch (e) {
+      console.warn('Self-test warning:', e);
+    }
+
+    // Reporter errori a schermo per debug veloce
+    window.addEventListener('error', function(e){
+      console.warn('JS error:', e.message, e.filename + ':' + e.lineno);
+    });
+  </script>
+</body>
+</html>
