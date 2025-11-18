@@ -67,12 +67,12 @@
           <a href="#" id="btnGeo" class="mini">Usa geolocalizzazione</a>
         </div>
         <div>
-          <label for="lon">Lon *</label>
+          <label for="lon">Longitudine *</label>
           <input id="lon" type="number" step="any" inputmode="decimal" placeholder="Es. 8.56789" />
         </div>
 
         <div class="full">
-          <label for="landcover">Land cover</label>
+          <label for="landcover">Land cover *</label>
           <select id="landcover">
             <option value="">— seleziona —</option>
             <option value="Bosco">Bosco</option>
@@ -85,9 +85,9 @@
         </div>
 
         <div class="full">
-          <label for="photoFile">Foto (opzionale)</label>
+          <label for="photoFile">Foto </label>
           <input id="photoFile" type="file" accept="image/*" />
-          <div class="hint">*.jpg.</div>
+          <div class="hint">*.jpg</div>
         </div>
 
         <div class="full row" style="align-items:center; justify-content:flex-end">
@@ -99,7 +99,7 @@
     </div>
 
     <div style="margin-top:16px" class="mini">
-      I punti vengono salvati automaticamente su Supabase.
+      Attendi la conferma di caricamento prima di chiudere.
     </div>
   </div>
 
@@ -217,8 +217,8 @@
             photoUrl = await uploadPhotoToSupabase(resized, name);
           }
           await insertSupabasePoint(name, lat, lon, land, photoUrl);
-          showToast('Aggiunto ✓ (cloud)');
-          setStatus('Punto salvato su Supabase', 'ok');
+          showToast('Aggiunto ✓');
+          setStatus('Punto salvato corretamente', 'ok');
         }catch(e){
           console.warn(e);
           showToast('Errore cloud');
