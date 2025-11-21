@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Uniss Soil WebGIS</title>
+
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root{
+      --bg:#ffffff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --brand:#2563eb;
+      --surface:#f8fafc; --shadow:0 6px 20px rgba(2,6,23,.12);
+      --radius:12px;
+    }
+    html, body { height: 100%; margin: 0; }
+    body { display: grid; grid-template-rows: 1fr auto; }
+    #map { height: 100%; }
+
+    .leaflet-tooltip.name-label {
+      background: rgba(255,255,255,.92); color:#111; border:1px solid #ddd;
+      font-weight:600; padding:2px 6px; border-radius:6px;
+    }
+
+    /* ===== Modal elenco punti ===== */
+    .modal-backdrop{ position: fixed; inset: 0; background: rgba(2,6,23,.45); display: none; align-items: center; justify-content: center; z-index: 2000; }
+    .modal{ width: min(520px, calc(100% - 24px)); background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 12px; max-height: 70vh; display: flex; flex-direction: column; }
+    .modal header{ display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom: 1px solid var(--line); padding: 8px 4px; margin-bottom: 8px; }
+    .modal h4{ margin:0; font-size:16px; color:var(--ink) }
+    .modal .close{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+    .modal .list{ overflow:auto; padding: 6px 2px; display: grid; gap: 6px; }
+    .point-item{ display:grid; grid-template-columns: 1fr auto; gap: 8px; align-items:center; border:1px solid var(--line); border-radius:10px; padding:8px 10px; background:var(--surface); }
+    .point-item .meta{ font-size: 12px; color: var(--muted); }
+    .point-item .go{ padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+    .modal .search{ margin: 6px 0 10px; }
+    .modal input[type="search"]{ width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--surface); outline:none; }
+
+    /* Controllo flottante per aprire l'elenco */
+    .list-control-btn { background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 8px 10px; font: 600 13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; cursor: pointer; }
+
+    /* ===== Dashboard bottom bar ===== */
+    #dashbar{ display:flex; align-items:center; gap:12px; padding:8px 12px; border-top:1px solid var(--line); background:#fff; }
+    #dashbar .btn{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 12px; cursor:pointer; box-shadow: var(--shadow); font: 600 13px system-ui; }
+
+    #dashboardPanel{ display:none; border-top:1px solid var(--line); background:var(--surface); }
+    #dashboardInner{ max-width: 1200px; margin: 0 auto; padding: 12px 12px 16px; }
+    #dashboardInner h3{ margin: 6px 0 10px; font: 700 16px system-ui; color: var(--ink); }
+    #chartWrap{ overflow-x:auto; background:#fff; border:1px solid var(--line); border-radius:12px; padding:8px; box-shadow: var(--shadow); }
+    #chart{ display:block; width:100%; height:340px; }
+    .chart-legend{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .chip{ display:flex; align-items:center; gap:6px; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:999px; padding:4px 8px; }
+    .chip .sw{ width:12px; height:12px; border-radius:50%; border:2px solid #000; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Modal elenco punti -->
+  <div class="modal-backdrop" id="pointsModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pointsTitle">
+      <header>
+        <h4 id="pointsTitle">Elenco punti</h4>
+        <button class="close" id="closeModalBtn">Chiudi</button>
+      </header>
+      <div class="search">
+        <input id="pointsSearch" type="search" placeholder="Cerca per nome…" />
+      </div>
+      <div class="list" id="pointsList"></div>
+    </div>
+  </div>
+
+  <!-- Dashboard bottom -->
+  <div id="dashbar">
+    <button id="toggleDashboard" class="btn" type="button">Dashboard</button>
+    <a class="btn" href="https://r66282309-hub.github.io/soilsample/uniss_survey.html" target="_blank" rel="noopener">Survey</a>
+    <a class="btn" href="https://r66282309-hub.github.io/soilsample/soilsample.html" target="_blank" rel="noopener">Soil Sample</a>
+    <div style="font: 500 13px system-ui; color: var(--muted);"> <code> </code></div>
+  </div>
+  <div id="dashboardPanel">
+    <div id="dashboardInner">
+      <h3>Distribuzione punti per Land Cover</h3>
+      <div id="chartWrap">
+        <svg id="chart" role="img" aria-label="Grafico a barre dei conteggi per Land Cover"></svg>
+      </div>
+      <div class="chart-legend" id="chartLegend"></div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    //  CONFIG
+    // =========================
+    const START_VIEW = [40.0, 9.0];
+    const START_ZOOM = 8;
+
+    // Supabase (solo lettura: punti + foto)
+    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+    const SUPABASE_ANON_KEY =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Tabella opzionale con punti "legacy" caricati da CSV in Supabase
+    const ACCURACY_TABLE = 'accuracy_points';
+
+    // =========================
+    //  MAPPA
+    // =========================
+    const map = L.map('map').setView(START_VIEW, START_ZOOM);
+
+    // Basemaps
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+    const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community' });
+    const opentopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap' });
+    const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' });
+    const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' });
+
+    // Layer gruppi
+    const cloudLayer = L.layerGroup().addTo(map);  // punti letti da Supabase (tabella "points")
+    const accuracyLayer = L.layerGroup();          // punti legacy letti da Supabase (tabella CSV importata)
+
+    // Soglia per etichette (zoom 14)
+    const CLOUD_LABEL_ZOOM = 14;
+    const ACC_LABEL_ZOOM   = 14;
+
+    // Layer control (selezione layer)
+    const baseLayers = { 'OSM Standard': osm, 'Ortofoto Esri': esri, 'OpenTopoMap': opentopo, 'Carto Light': cartoLight, 'Carto Dark': cartoDark };
+    const overlays   = { 'Punti cloud': cloudLayer, 'Punti Legacy': accuracyLayer };
+    L.control.layers(baseLayers, overlays, { position:'topright', collapsed:false }).addTo(map);
+
+    // ===== Stato classificazione
+    let classificationEnabled = true; // attivo di default
+    const CLASS_FIELD = 'land_cover';
+    const categorySet = new Set();                  // categorie viste nei dati
+
+    // Palette categoriale ampia (24 tinte)
+    const PALETTE = [
+      '#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf',
+      '#393b79','#637939','#8c6d31','#843c39','#7b4173','#3182bd','#e6550d','#31a354','#756bb1','#636363',
+      '#9c9ede','#b5cf6b','#e7ba52','#ad494a','#9c9ede'
+    ];
+    const categoryColors = new Map(); // categoria -> colore
+
+    function assignColorForCategory(cat){
+      const key = String(cat||'').trim() || '(n/d)';
+      if (categoryColors.has(key)) return categoryColors.get(key);
+      const idx = categoryColors.size % PALETTE.length;
+      const chosen = PALETTE[idx] || '#444';
+      categoryColors.set(key, chosen);
+      return chosen;
+    }
+
+    // ===== indice marker cloud: id -> { marker, name, lat, lon, photo_url, land_cover }
+    const cloudIndex = new Map();
+
+    // =========================
+    //  UTILITY
+    // =========================
+    function escapeHtml(s) { return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;"); }
+    function isValidLatLon(lat, lon) { return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180; }
+    function buildId(name, lat, lon){ return `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}|${(name||'').trim().slice(0,80)}`; }
+    function resolvePhotoUrl(photo_url){ const raw = String(photo_url || '').trim(); if (!raw) return ''; if (/^https?:\/\//i.test(raw)) return raw; try { const { data } = supabase.storage.from('soil_photos').getPublicUrl(raw); return data?.publicUrl || ''; } catch(e){ return ''; } }
+    function getAny(obj, keys){ for (const k of keys){ if (k in obj && obj[k] != null && obj[k] !== '') return obj[k]; const low = k.toLowerCase(); for (const kk of Object.keys(obj)){ if (kk.toLowerCase() === low) return obj[kk]; } } return undefined; }
+
+    // =========================
+    //  COLORI & CLASSIFICAZIONE
+    // =========================
+    function styleForPoint(rec){
+      if (!classificationEnabled) return { radius: 7, weight: 2, color: '#2563eb', fillOpacity: 0.8 };
+      const key = String(rec?.land_cover||'').trim() || '(n/d)';
+      const color = assignColorForCategory(key);
+      return { radius: 7, weight: 2, color, fillOpacity: 0.85 };
+    }
+
+    function applyClassification(){
+      cloudLayer.eachLayer((m)=>{
+        const rec = { land_cover: m?.options?._land_cover };
+        m.setStyle(styleForPoint(rec));
+      });
+      renderLegend();
+      updateDashboard();
+    }
+
+    // =========================
+    //  LETTURA PUNTI DA SUPABASE
+    // =========================
+    function addCloudPoint(name, lat, lon, photo_url, land_cover) {
+      const rec = { name, lat, lon, photo_url, land_cover };
+      const m = L.circleMarker([lat,lon], styleForPoint(rec)).addTo(cloudLayer);
+      // etichetta gestita da zoom
+      m.options._labelName = name || '';
+
+      const img = resolvePhotoUrl(photo_url);
+      const imgHtml = img ? `<div style="margin-top:6px;"><img src="${img}" alt="foto" style="max-width:220px;max-height:160px;border-radius:8px;display:block;"></div>` : '';
+      const lcHtml = land_cover ? `<div style=\"margin-top:6px; font-size:12px\"><b>Land cover:</b> ${escapeHtml(land_cover)}</div>` : '';
+      m.bindPopup(`<b>${escapeHtml(name || '')}</b>${lcHtml}${imgHtml}`);
+
+      const id = buildId(name, lat, lon);
+      m.options.customId = id;
+      m.options._land_cover = land_cover || '';
+      cloudIndex.set(id, { marker: m, name, lat, lon, photo_url, land_cover });
+
+      // aggiorna categorie/legenda ed etichette
+      const catKey = String(land_cover||'').trim() || '(n/d)';
+      if (!categorySet.has(catKey)) { categorySet.add(catKey); renderLegend(); }
+      updateCloudLabels();
+    }
+
+    async function loadSupabasePoints() {
+      const {data, error} = await supabase
+        .from('points')
+        .select('name,lat,lon,photo_url,land_cover')
+        .order('created_at',{ascending:false})
+        .limit(5000);
+      if (error) { console.warn('Supabase SELECT', error.message); return; }
+      cloudLayer.clearLayers();
+      cloudIndex.clear();
+      categorySet.clear();
+      categoryColors.clear();
+      (data || []).forEach(r => {
+        const lat = Number(r?.lat), lon = Number(r?.lon);
+        if (isValidLatLon(lat, lon)) addCloudPoint(r.name || '', lat, lon, r.photo_url, r.land_cover || '');
+      });
+      if (document.getElementById('pointsModal').style.display === 'flex') { renderPointsList(); }
+      applyClassification();
+      updateCloudLabels();
+    }
+
+    // =========================
+    //  PUNTI ACCURATEZZA (tabella CSV importata)
+    // =========================
+    let accuracyLoaded = false;
+    function addAccuracyPoint(row){
+      const lat = Number(getAny(row, ['Lat','lat','latitude']));
+      const lon = Number(getAny(row, ['Lon','lon','lng','long','longitude']));
+      if (!isValidLatLon(lat, lon)) return;
+      const name   = getAny(row, ['Name','Nuovo','name','nome']) || '';
+      const codice = getAny(row, ['CODICE','codice']) || '';
+      const gps    = getAny(row, ['GPS','gps']) || '';
+      const acc1   = getAny(row, ['Accuratezza 1','accuratezza_1','accuratezza1']) || '';
+      const acc2   = getAny(row, ['Accuratezza 2','accuratezza_2','accuratezza2']) || '';
+      const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) ?? '';
+      const status = String(acc2).toLowerCase();
+      let color = '#3388ff';
+      if (status.includes('errore')) color = '#dc2626'; else if (status.includes('verific')) color = '#f59e0b'; else if (status.includes('corretto') || status.includes('giusto')) color = '#059669';
+      const marker = L.circleMarker([lat,lon], { radius: 6, weight: 2, color, fillOpacity: 0.7 }).addTo(accuracyLayer);
+      marker.options._labelName = name;
+      const htmlParts = [];
+      htmlParts.push('<div style="min-width:220px">');
+      htmlParts.push('<div><b>' + escapeHtml(name || '') + '</b></div>');
+      if (codice) htmlParts.push('<div><small>Codice: ' + escapeHtml(codice) + '</small></div>');
+      htmlParts.push('<div style="margin-top:6px; font-size:13px">');
+      if (gps)  htmlParts.push('GPS: <b>' + escapeHtml(gps)  + '</b><br>');
+      if (acc1) htmlParts.push('Accuratezza 1: <b>' + escapeHtml(acc1) + '</b><br>');
+      if (acc2) htmlParts.push('Accuratezza 2: <b>' + escapeHtml(acc2) + '</b><br>');
+      if (degr) htmlParts.push('Land Degradation: <b>' + escapeHtml(degr) + '</b><br>');
+      htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
+      htmlParts.push('</div></div>');
+      marker.bindPopup(htmlParts.join(''));
+    }
+    function updateAccuracyLabels(){ const show = map.getZoom() >= ACC_LABEL_ZOOM; accuracyLayer.eachLayer((lyr) => { const nm = lyr?.options?._labelName || ''; const hasTooltip = !!lyr.getTooltip(); if (show && nm && !hasTooltip){ lyr.bindTooltip(nm, { permanent:true, direction:'top', offset:[0,-8], className:'name-label' }); } else if (!show && hasTooltip){ lyr.unbindTooltip(); } }); }
+    async function loadAccuracyPoints(){ try{ const { data, error } = await supabase.from(ACCURACY_TABLE).select('*').limit(20000); if (error) { console.warn('Supabase SELECT accuracy', error.message); alert('Errore nel leggere la tabella di accuratezza.'); return; } accuracyLayer.clearLayers(); (data || []).forEach(addAccuracyPoint); accuracyLoaded = true; updateAccuracyLabels(); }catch(e){ console.warn(e); } }
+    map.on('overlayadd', (e) => { if (e.layer === accuracyLayer && !accuracyLoaded) { loadAccuracyPoints(); } if (e.layer === accuracyLayer) { updateAccuracyLabels(); } });
+
+    // =========================
+    //  MODAL ELENCO PUNTI (solo lettura da Supabase)
+    // =========================
+    const pointsModal = document.getElementById('pointsModal');
+    const pointsList  = document.getElementById('pointsList');
+    const pointsSearch= document.getElementById('pointsSearch');
+    function openPointsModal(){ renderPointsList(); pointsModal.style.display = 'flex'; pointsSearch.value = ''; pointsSearch.focus(); }
+    function closePointsModal(){ pointsModal.style.display = 'none'; }
+    function renderPointsList(){
+      const items = Array.from(cloudIndex.values()).map(({name, lat, lon, marker, photo_url}) => ({ id: marker.options.customId, name: name || '', lat: Number(lat), lon: Number(lon), photo_url: photo_url || '' }));
+      const q = (pointsSearch.value || '').toLowerCase().trim();
+      const filt = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items;
+      if (!filt.length){ pointsList.innerHTML = `<div class=\"note\" style=\"padding:6px 2px;\">Nessun punto da mostrare.</div>`; return; }
+      pointsList.innerHTML = filt.map(it => `
+        <div class="point-item">
+          <div>
+            <div><strong>${escapeHtml(it.name || '(senza nome)')}</strong></div>
+            <div class="meta">Lat: ${it.lat.toFixed(6)} • Lon: ${it.lon.toFixed(6)}</div>
+            ${ (cloudIndex.get(it.id)?.land_cover) ? `<div class="meta">Land cover: <b>${escapeHtml(cloudIndex.get(it.id).land_cover)}</b></div>` : ''}
+            ${ (it.photo_url && resolvePhotoUrl(it.photo_url)) ? `<img src="${resolvePhotoUrl(it.photo_url)}" alt="foto" style="margin-top:6px;max-width:140px;max-height:100px;border-radius:8px;display:block;">` : ''}
+          </div>
+          <button class="go" data-id="${it.id}" title="Zoom al punto">Vai</button>
+        </div>
+      `).join('');
+    }
+    function zoomToPointById(id){ const rec = cloudIndex.get(id); if (!rec) return; const { marker, lat, lon } = rec; map.setView([lat, lon], Math.max(map.getZoom(), 17), { animate: true }); if (marker.getPopup()) marker.openPopup(); else marker.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}`).openPopup(); }
+    document.getElementById('closeModalBtn').addEventListener('click', closePointsModal);
+    document.getElementById('pointsModal').addEventListener('click', (e) => { if (e.target === document.getElementById('pointsModal')) closePointsModal(); });
+    pointsSearch.addEventListener('input', renderPointsList);
+    pointsList.addEventListener('click', (e) => { const btn = e.target.closest('button.go'); if (!btn) return; const id = btn.getAttribute('data-id'); zoomToPointById(id); });
+
+    // Controllo Leaflet per aprire l'elenco punti
+    const ListControl = L.Control.extend({ options: { position: 'topleft' }, onAdd: function(map){ const div = L.DomUtil.create('div', 'leaflet-bar'); const btn = L.DomUtil.create('button', 'list-control-btn', div); btn.type = 'button'; btn.title = 'Elenco punti (Supabase)'; btn.textContent = 'Elenco punti'; btn.addEventListener('click', openPointsModal); L.DomEvent.disableClickPropagation(btn); return div; } });
+    map.addControl(new ListControl());
+
+    // ===== Controllo classificazione + legenda
+    const ClassifyControl = L.Control.extend({ options: { position: 'topleft' }, onAdd: function(){ const wrap = L.DomUtil.create('div', 'leaflet-bar'); const box = L.DomUtil.create('div', '', wrap); box.style.background = '#fff'; box.style.border = '1px solid var(--line)'; box.style.padding = '8px'; box.style.borderRadius = '10px'; box.style.boxShadow = 'var(--shadow)'; box.innerHTML = `
+          <label style="display:flex; gap:8px; align-items:center; font: 600 13px system-ui">
+            <input id="toggleClassify" type="checkbox" ${classificationEnabled ? 'checked' : ''} />
+            Categoria <code style="background:#f1f5f9;padding:2px 6px;border-radius:6px">Land Cover</code>
+          </label>
+          <div style="margin-top:6px; font: 500 12px system-ui; color: var(--muted);"> </div>
+          <div id="legend" style="margin-top:8px; max-width:260px"></div>
+        `; L.DomEvent.disableClickPropagation(box); return wrap; } });
+    map.addControl(new ClassifyControl());
+
+    function renderLegend(){
+      const cont = document.getElementById('legend'); if (!cont) return;
+      if (!classificationEnabled){ cont.innerHTML = '<div class="meta">Classificazione disattivata</div>'; return; }
+      const cats = Array.from(categorySet).sort((a,b)=>a.localeCompare(b));
+      if (!cats.length){ cont.innerHTML = '<div class="meta">Nessuna categoria</div>'; return; }
+      cont.innerHTML = cats.map(k=>{ const color = assignColorForCategory(k); return `<div style="display:flex; align-items:center; gap:8px; margin:4px 0;">
+          <span style="display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid ${color}; background:${color};"></span>
+          <span style="font-size:12px">${escapeHtml(k)}</span>
+        </div>`; }).join('');
+    }
+
+    document.addEventListener('change', (e)=>{ if (e.target && e.target.id === 'toggleClassify'){ classificationEnabled = !!e.target.checked; applyClassification(); updateCloudLabels(); } });
+
+    // =========================
+    //  DASHBOARD: BAR CHART (SVG) CONTEGGI land_cover
+    // =========================
+    const dashBtn = document.getElementById('toggleDashboard');
+    const dashPanel = document.getElementById('dashboardPanel');
+    const chartSvg = document.getElementById('chart');
+    const legendDiv = document.getElementById('chartLegend');
+
+    dashBtn.addEventListener('click', ()=>{
+      const show = dashPanel.style.display !== 'block';
+      dashPanel.style.display = show ? 'block' : 'none';
+      if (show) updateDashboard();
+      setTimeout(()=>{ if (show) updateDashboard(); }, 50);
+    });
+
+    window.addEventListener('resize', ()=>{ if (dashPanel.style.display === 'block') updateDashboard(); });
+
+    function getCounts(){
+      const counts = new Map();
+      cloudIndex.forEach(({ land_cover }) => {
+        const k = String(land_cover||'').trim() || '(n/d)';
+        counts.set(k, (counts.get(k)||0) + 1);
+      });
+      return Array.from(counts.entries()).sort((a,b)=> b[1]-a[1]);
+    }
+
+    function updateDashboard(){
+      const data = getCounts();
+      renderBars(data);
+      renderLegendChips(data);
+    }
+
+    function renderLegendChips(data){
+      legendDiv.innerHTML = data.map(([k])=>{
+        const color = assignColorForCategory(k);
+        return `<div class="chip"><span class="sw" style="background:${color}; border-color:${color}"></span>${escapeHtml(k)}</div>`;
+      }).join('');
+    }
+
+    function renderBars(data){
+      const wrap = document.getElementById('chartWrap');
+      const { width } = wrap.getBoundingClientRect();
+      const height = Math.max(220, Math.min(420, 30 + data.length*22));
+      const margin = { top: 18, right: 16, bottom: 40, left: 160 };
+      const innerW = Math.max(320, width - margin.left - margin.right);
+      const innerH = Math.max(80, height - margin.top - margin.bottom);
+
+      // Clear
+      while (chartSvg.firstChild) chartSvg.removeChild(chartSvg.firstChild);
+      chartSvg.setAttribute('width', width);
+      chartSvg.setAttribute('height', height);
+
+      // Scales
+      const maxVal = data.reduce((m,[,v])=>Math.max(m,v), 0) || 1;
+      const x = (v)=> v/maxVal * innerW;
+
+      // Group
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.setAttribute('transform', `translate(${margin.left}, ${margin.top})`);
+      chartSvg.appendChild(g);
+
+      // Bars
+      data.forEach(([k,v], i)=>{
+        const y = i * (innerH / Math.max(1, data.length));
+        const barH = Math.max(12, (innerH / Math.max(1, data.length)) - 6);
+        const color = assignColorForCategory(k);
+        const w = x(v);
+
+        // label cat (y-axis)
+        const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+        text.setAttribute('x', -8); text.setAttribute('y', y + barH/2 + 4);
+        text.setAttribute('text-anchor','end'); text.setAttribute('font-size','12');
+        text.textContent = k; g.appendChild(text);
+
+        // bar
+        const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        rect.setAttribute('x', 0); rect.setAttribute('y', y);
+        rect.setAttribute('width', w); rect.setAttribute('height', barH);
+        rect.setAttribute('fill', color); rect.setAttribute('opacity','0.95');
+        rect.setAttribute('rx','6'); rect.setAttribute('ry','6');
+        g.appendChild(rect);
+
+        // value label: inside if enough space, else outside
+        const val = document.createElementNS('http://www.w3.org/2000/svg','text');
+        const inside = w > 28; // px threshold
+        val.setAttribute('x', inside ? (w - 6) : (w + 6));
+        val.setAttribute('y', y + barH/2 + 4);
+        val.setAttribute('font-size','12');
+        val.setAttribute('text-anchor', inside ? 'end' : 'start');
+        val.setAttribute('fill', inside ? '#ffffff' : '#111111');
+        val.textContent = v;
+        g.appendChild(val);
+      });
+
+      // x-axis reference labels (0, max)
+      [0, maxVal].forEach((t)=>{
+        const tx = margin.left + x(t);
+        const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+        label.setAttribute('x', tx); label.setAttribute('y', height - 14);
+        label.setAttribute('text-anchor', t===0?'start':'end'); label.setAttribute('font-size','11');
+        label.textContent = t; chartSvg.appendChild(label);
+      });
+    }
+
+    // =========================
+    //  LABELS VISIBILI SOLO DA ZOOM 17
+    // =========================
+    function updateCloudLabels(){
+      const show = map.getZoom() >= CLOUD_LABEL_ZOOM;
+      cloudLayer.eachLayer((lyr) => {
+        const nm = lyr?.options?._labelName || '';
+        const hasTooltip = !!lyr.getTooltip();
+        if (show && nm && !hasTooltip){
+          lyr.bindTooltip(nm, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
+        } else if (!show && hasTooltip){
+          lyr.unbindTooltip();
+        }
+      });
+    }
+
+    map.on('zoomend', () => { updateCloudLabels(); updateAccuracyLabels(); });
+
+    // =========================
+    //  AVVIO (solo lettura)
+    // =========================
+    loadSupabasePoints();
+
+    // Self-test basilare
+    try {
+      console.assert(typeof L !== 'undefined', 'Leaflet presente');
+      console.assert(map instanceof L.Map, 'Mappa inizializzata');
+      console.assert(typeof supabase !== 'undefined', 'Supabase client presente');
+      console.assert(typeof loadSupabasePoints === 'function', 'Funzione loadSupabasePoints definita');
+    } catch (e) { console.warn('Self-test warning:', e); }
+
+    window.addEventListener('error', function(e){ console.warn('JS error:', e.message, e.filename + ':' + e.lineno); });
+  </script>
+</body>
+</html>
