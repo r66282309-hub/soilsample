@@ -496,6 +496,7 @@
       htmlParts.push(optRow('Accuratezza 1', acc1));
       htmlParts.push(optRow('Accuratezza 2', acc2));
       htmlParts.push(optRow('Land Degradation', degr));
+	  htmlParts.push(optRow('Land Cover', clc));   // prova2
       htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
       htmlParts.push('</div></div>');
       marker.bindPopup(htmlParts.join(''));
