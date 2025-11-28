@@ -475,7 +475,8 @@
       const gps    = getAny(row, ['GPS','gps']) || '';
       const acc1   = getAny(row, ['Accuratezza 1','accuratezza_1','accuratezza1']) || '';
       const acc2   = getAny(row, ['Accuratezza 2','accuratezza_2','accuratezza2']) || '';
-      const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) ?? '';
+      const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) || '';
+	  const clc    = getAny(row, ['Land Cover','Land_Cover','landcover']) || '';
 
       const status = String(acc2).toLowerCase();
       let color = '#3388ff';
