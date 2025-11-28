@@ -479,12 +479,13 @@
 	  const clc    = getAny(row, ['Land Cover','Land_Cover','landcover']) || '';
 
       const status = String(acc2).toLowerCase();
-      let color = '#3388ff';
-      if (status.includes('errore')) color = '#dc2626';
-      else if (status.includes('verific')) color = '#f59e0b';
-      else if (status.includes('corretto') || status.includes('giusto')) color = '#059669';
+	  let color = '#3388ff';
 
-      const marker = L.circleMarker([lat,lon], { radius: 6, weight: 2, color, fillOpacity: 0.7 }).addTo(accuracyLayer);
+	  /* Classifica per land cover/
+	  if (clc === '1A')      color = '#dc2626';   // rosso
+	  else if (clc === '1B') color = '#059669';   // verde
+
+	  const marker = L.circleMarker([lat,lon], { radius: 6, weight: 2, color, fillOpacity: 0.7 }).addTo(accuracyLayer);
       marker.options._labelName = name;
 
       const htmlParts = [];
