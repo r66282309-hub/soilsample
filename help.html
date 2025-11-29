@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guida completa - Soil Data Hub</title>
+
+  <style>
+    :root {
+      --bg: #020617;
+      --bg-soft: #020617;
+      --accent: #22c55e;
+      --accent-soft: rgba(34, 197, 94, 0.12);
+      --ink: #e5e7eb;
+      --ink-soft: #9ca3af;
+      --border-soft: rgba(148, 163, 184, 0.35);
+      --radius-xl: 1.5rem;
+      --shadow-soft: 0 24px 60px rgba(0, 0, 0, 0.8);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, #1f2937 0, #020617 50%, #000000 100%);
+      color: var(--ink);
+      display: flex;
+      justify-content: center;
+      padding: 2.5rem 1.25rem 3rem;
+    }
+
+    .page-shell {
+      width: 100%;
+      max-width: 1100px;
+      background: radial-gradient(circle at top left, #020617, #020617 55%);
+      border-radius: 1.75rem;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      box-shadow: var(--shadow-soft);
+      padding: 2.2rem 2.2rem 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .page-shell::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.28), transparent 55%),
+        radial-gradient(circle at 100% 0, rgba(56, 189, 248, 0.25), transparent 60%);
+      opacity: 0.45;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* HEADER */
+
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 2.2rem;
+      align-items: center;
+    }
+
+    .header-main {
+      max-width: 640px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.22rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      background: rgba(15, 23, 42, 0.7);
+      color: #a5f3fc;
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-bottom: 0.7rem;
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 10px rgba(34, 197, 94, 0.9);
+    }
+
+    .title {
+      font-size: clamp(2rem, 3vw, 2.4rem);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.3rem;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: var(--ink-soft);
+      max-width: 520px;
+    }
+
+    .header-side {
+      text-align: right;
+      font-size: 0.85rem;
+      color: var(--ink-soft);
+    }
+
+    .header-side a {
+      color: #a5f3fc;
+      text-decoration: none;
+    }
+
+    .header-side a:hover {
+      text-decoration: underline;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.8rem;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      margin-bottom: 0.4rem;
+    }
+
+    .pill span {
+      font-size: 0.8rem;
+    }
+
+    /* LISTA GUIDA */
+
+    .guide-wrapper {
+      margin-top: 1.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+    }
+
+    .guide-item {
+      display: grid;
+      grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: stretch;
+      padding: 0.9rem 1rem;
+      border-radius: 1.1rem;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(51, 65, 85, 0.8);
+      backdrop-filter: blur(14px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .guide-item::before {
+      content: "";
+      position: absolute;
+      inset: -20%;
+      background: radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.18), transparent 60%);
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .guide-item-inner {
+      position: relative;
+      z-index: 1;
+      display: contents;
+    }
+
+    .image-box {
+      border-radius: 0.9rem;
+      overflow: hidden;
+      border: 1px solid rgba(75, 85, 99, 0.9);
+      background: radial-gradient(circle at top left, #111827, #020617 60%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .image-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      filter: saturate(1.05);
+      transition: transform 0.28s ease-out, filter 0.28s ease-out;
+    }
+
+    .guide-item:hover .image-box img {
+      transform: scale(1.03);
+      filter: saturate(1.2);
+    }
+
+    .image-tag {
+      position: absolute;
+      left: 0.65rem;
+      bottom: 0.55rem;
+      padding: 0.18rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.85);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #e5e7eb;
+      border: 1px solid rgba(148, 163, 184, 0.8);
+    }
+
+    .caption-box {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.25rem;
+    }
+
+    .caption-step {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #a5f3fc;
+    }
+
+    .caption-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.1rem;
+    }
+
+    .caption-text {
+      font-size: 0.88rem;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+
+    .caption-meta {
+      margin-top: 0.25rem;
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+
+    .caption-meta strong {
+      color: #9ca3af;
+      font-weight: 500;
+    }
+
+    /* FOOTER */
+
+    .footer-note {
+      margin-top: 1.8rem;
+      font-size: 0.78rem;
+      color: var(--ink-soft);
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      border-top: 1px solid rgba(55, 65, 81, 0.8);
+      padding-top: 0.9rem;
+    }
+
+    .footer-note a {
+      color: #a5f3fc;
+      text-decoration: none;
+    }
+
+    .footer-note a:hover {
+      text-decoration: underline;
+    }
+
+    /* RESPONSIVE */
+
+    @media (max-width: 900px) {
+      .page-shell {
+        padding: 1.8rem 1.5rem 1.6rem;
+      }
+
+      .guide-item {
+        grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 1.6rem 0.9rem 2.2rem;
+      }
+
+      .page-shell {
+        padding: 1.6rem 1.1rem 1.4rem;
+        border-radius: 1.4rem;
+      }
+
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+      }
+
+      .header-side {
+        text-align: left;
+      }
+
+      .guide-item {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .image-box {
+        max-height: 220px;
+      }
+
+      .footer-note {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <div class="content">
+      <header class="header">
+        <div class="header-main">
+          <div class="badge">
+            <span class="badge-dot"></span>
+            Soil Data Hub · Guida completa
+          </div>
+          <h1 class="title">Come usare gli strumenti del WebGIS</h1>
+          <p class="subtitle">
+            In questa pagina trovi una panoramica visiva delle principali schermate del WebGIS, con indicazioni rapide su cosa puoi fare in ognuna.
+          </p>
+        </div>
+        <div class="header-side">
+        <div>
+            Torna alla home:
+            <a href="index.html">Salute Suolo Sample Platform</a>
+          </div>
+        </div>
+      </header>
+
+      <section class="guide-wrapper" aria-label="Guida illustrata alla piattaforma">
+        <!-- 1. Classifica -->
+        <article class="guide-item">
+          <div class="guide-item-inner">
+            <figure class="image-box">
+              <!-- sostituisci con la tua immagine -->
+              <img src="img/class.jpg" alt="Classifica per attributi">
+              <figcaption class="image-tag">Classificazione</figcaption>
+            </figure>
+            <div class="caption-box">
+              <div class="caption-step">Classificazione punti Survey</div>
+              <h2 class="caption-title">Classificazione per attributi</h2>
+              <p class="caption-text">
+                Lo strumento consente di classificare i punti selezionando un campo presente nel dataset. I colori vengono assegnati in maniera automatica (casuale). 
+              </p>
+              <p class="caption-meta">
+                <strong>Tip:</strong> seleziona il campo da classificare dal menu a tendina.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 2. Filtri per selezione -->
+        <article class="guide-item">
+          <div class="guide-item-inner">
+            <figure class="image-box">
+              <img src="img/selez.jpg" alt="Filtri per effettuare selezioni">
+              <figcaption class="image-tag">Filtri & Selezione</figcaption>
+            </figure>
+            <div class="caption-box">
+              <div class="caption-step">Selezione (solo punti legacy)</div>
+              <h2 class="caption-title">Gestione filtri e selezioni</h2>
+              <p class="caption-text">
+                Il pannello consente di effettuare selezioni sui dati legacy in base alla Land Cover (1A = pascolo su granito; 1B = bosco su granito). Da Elenco punti legacy si accede alla lista dei punti legacy, con funzioni di esportazione.
+              </p>
+              <p class="caption-meta">
+                <strong>Tip:</strong> permette di filtrare i dati legacy sulla base della Land Cover.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <!-- export kml -->
+        <article class="guide-item">
+          <div class="guide-item-inner">
+            <figure class="image-box">
+              <img src="img/kml.jpg" alt="Selezione ed esportazione dati legacy">
+              <figcaption class="image-tag">Esporta dati</figcaption>
+            </figure>
+            <div class="caption-box">
+              <div class="caption-step">Esportazione punti legacy</div>
+              <h2 class="caption-title">Seleziona ed esporta punti legacy</h2>
+              <p class="caption-text">
+                Il modulo consente di cercare punti legacy nel dataset tramite diversi attributi, selezionare uno o più punti ed esportarli in formato KML (compatibile con OsmAnd e Google Earth).
+              </p>
+              <p class="caption-meta">
+                <strong>Tip:</strong> esporta in kml e apri direttamente in Osmand.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <!-- cpmandi a schermo -->
+        <article class="guide-item">
+          <div class="guide-item-inner">
+            <figure class="image-box">
+              <img src="img/draw.jpg" alt="Strumenti di navigazione e disegno">
+              <figcaption class="image-tag">Navigazione e Disegno</figcaption>
+            </figure>
+            <div class="caption-box">
+              <div class="caption-step">Widget</div>
+              <h2 class="caption-title">Disegna linee e poligoni</h2>
+              <p class="caption-text">
+                Controlli di disegno e zoom su mappa. Consentono di disegnare linee e poligoni sulla mappa. 
+              </p>
+              <p class="caption-meta">
+                <strong>Tip:</strong> il comando Cloud visualizza l'elenco dei punti Survey e i relativi strumenti di ricerca.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 5. espoerta legacy -->
+        <article class="guide-item">
+          <div class="guide-item-inner">
+            <figure class="image-box">
+              <img src="img/export_legacy.jpg" alt="Finestra di esportazione KML dalla piattaforma">
+              <figcaption class="image-tag">Esporta dati legacy</figcaption>
+            </figure>
+            <div class="caption-box">
+              <div class="caption-step">Esporta dati legacy</div>
+              <h2 class="caption-title">Esportare i dati per analisi esterne</h2>
+              <p class="caption-text">
+                Esporta i dati legacy su cui è stata effettuata una selezione, in csv e GeoJSON
+              </p>
+              <p class="caption-meta">
+                <strong>Tip:</strong> senza selezione viene esportato tutto il dataset.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <!-- 6. Strumenti di misura -->
+        <article class="guide-item">
+          <div class="guide-item-inner">
+            <figure class="image-box">
+              <img src="img/meas.jpg" alt="Strumenti di misura e pannello di controllo sulla mappa">
+              <figcaption class="image-tag">Strumenti di misura</figcaption>
+            </figure>
+            <div class="caption-box">
+              <div class="caption-step">Strumenti di misura</div>
+              <h2 class="caption-title">Misure</h2>
+              <p class="caption-text">
+                Dal pannello degli strumenti puoi misurare distanze e aree, verificare l’estensione di
+                una campagna di campionamento o controllare la distanza tra punti. 
+              </p>
+              <p class="caption-meta">
+                <strong>Tip:</strong> puoi variare l'unità di misura.
+              </p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <footer class="footer-note">
+        <div>
+          Ultimo aggiornamento della guida: <strong>versione interna Soil Data Hub</strong>.
+        </div>
+        <div>
+          Per suggerimenti o segnalazioni:
+          <a href="mailto:enricomelis1@gmail.com">contatta il referente della piattaforma</a>.
+        </div>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>
