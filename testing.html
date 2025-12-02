@@ -1,0 +1,1830 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Uniss Soil WebGIS (beta test)</title>
+
+  <!-- Leaflet CSS/JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet.draw per selezione spaziale -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+  <!-- Leaflet.markercluster per “concentrato” dei punti -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  
+  <!-- Esri Leaflet -->
+  <script src="https://unpkg.com/esri-leaflet@3/dist/esri-leaflet.js"></script>
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root{
+      --bg:#ffffff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --brand:#2563eb;
+      --surface:#f8fafc; --shadow:0 6px 20px rgba(2,6,23,.12);
+      --radius:12px;
+    }
+
+    html, body { height: 100%; margin: 0; }
+    body{
+      height:100vh;
+      margin:0;
+      display:flex;
+      flex-direction:column;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    /* layout principale: sidebar + mappa */
+    #app{
+      flex:1;
+      display:flex;
+      min-height:0;
+      width:100%;
+    }
+
+    #map{
+      flex:1;
+      height:100%;
+    }
+
+    #sidebar{
+      width:320px;
+      max-width:380px;
+      background:var(--surface);
+      border-right:1px solid var(--line);
+      padding:12px 12px 16px;
+      box-sizing:border-box;
+      overflow-y:auto;
+    }
+
+    #sidebar h2{
+      margin:0 0 10px;
+      font-size:18px;
+      color:var(--ink);
+    }
+
+    .panel-section{
+      margin-bottom:16px;
+      padding:10px 10px 12px;
+      background:#fff;
+      border-radius:var(--radius);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+    }
+    .panel-section h3{
+      margin:0 0 8px;
+      font-size:14px;
+      color:var(--ink);
+    }
+    .panel-section label{
+      display:block;
+      font-size:12px;
+      margin-bottom:4px;
+      color:var(--muted);
+    }
+    .side-toggle{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:13px;
+      margin-bottom:6px;
+    }
+    .panel-section code{
+      background:#e2e8f0;
+      padding:1px 6px;
+      border-radius:8px;
+      font-size:11px;
+    }
+    #sidebar input[type="text"],
+    #sidebar select{
+      width:100%;
+      padding:6px 8px;
+      border-radius:8px;
+      border:1px solid var(--line);
+      box-sizing:border-box;
+      font-size:13px;
+      margin-bottom:6px;
+      background:var(--surface);
+    }
+    #sidebar button{
+      width:100%;
+      margin-top:6px;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid var(--line);
+      background:#fff;
+      cursor:pointer;
+      font:600 13px system-ui;
+      box-shadow:var(--shadow);
+    }
+    #sidebar button.secondary{
+      background:var(--surface);
+      box-shadow:none;
+    }
+    #sidebar button:hover{
+      background:#eff6ff;
+    }
+    .selection-info{
+      font-size:12px;
+      color:var(--muted);
+      margin-top:6px;
+    }
+    .small{
+      font-size:11px;
+      color:var(--muted);
+      margin:0 0 6px;
+    }
+
+    /* tooltip nomi punti */
+    .leaflet-tooltip.name-label {
+      background: rgba(255,255,255,.92); color:#111; border:1px solid #ddd;
+      font-weight:600; padding:2px 6px; border-radius:6px;
+    }
+
+    /* etichette mappali catastali */
+    .parcel-label {
+      background: rgba(255,255,255,0.8);
+      border: 1px solid rgba(0,0,0,0.2);
+      border-radius: 4px;
+      padding: 1px 3px;
+      font-size: 10px;
+      color: #111;
+    }
+
+    /* ===== Modal generica ===== */
+    .modal-backdrop{ position: fixed; inset: 0; background: rgba(2,6,23,.45); display: none; align-items: center; justify-content: center; z-index: 2000; }
+    .modal{ width: min(520px, calc(100% - 24px)); background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 12px; max-height: 70vh; display: flex; flex-direction: column; }
+    .modal header{ display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom: 1px solid var(--line); padding: 8px 4px; margin-bottom: 8px; }
+    .modal h4{ margin:0; font-size:16px; color:var(--ink) }
+    .modal .close{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+    .modal .list{ overflow:auto; padding: 6px 2px; display: grid; gap: 6px; }
+    .point-item{ display:grid; grid-template-columns: 1fr auto; gap: 8px; align-items:center; border:1px solid var(--line); border-radius:10px; padding:8px 10px; background:var(--surface); }
+    .point-item .meta{ font-size: 12px; color: var(--muted); }
+    .point-item .go{ padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+    .modal .search{ margin: 6px 0 8px; }
+    .modal input[type="search"]{ width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--surface); outline:none; }
+
+    .list-control-btn { background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 8px 10px; font: 600 13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; cursor: pointer; }
+
+    .btn-small{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:8px;
+      padding:5px 8px;
+      font-size:12px;
+      cursor:pointer;
+    }
+    .btn-small:hover{
+      background:#eff6ff;
+    }
+
+    /* Pannello misura flottante a destra */
+    .measure-panel {
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:8px 10px;
+      min-width:210px;
+      font-size:12px;
+    }
+    .measure-panel h3{
+      margin:0 0 6px;
+      font-size:13px;
+      color:var(--ink);
+    }
+    .measure-panel label{
+      display:block;
+      font-size:11px;
+      margin-top:4px;
+      margin-bottom:2px;
+      color:var(--muted);
+    }
+    .measure-panel select,
+    .measure-panel button{
+      width:100%;
+      box-sizing:border-box;
+    }
+    .measure-panel select{
+      padding:4px 6px;
+      border-radius:8px;
+      border:1px solid var(--line);
+      background:var(--surface);
+      font-size:12px;
+      margin-bottom:4px;
+    }
+    .measure-panel button{
+      margin-top:4px;
+      padding:6px 8px;
+      border-radius:8px;
+      border:1px solid var(--line);
+      background:#fff;
+      cursor:pointer;
+      font:600 12px system-ui;
+    }
+    .measure-panel button:hover{
+      background:#eff6ff;
+    }
+    .measure-panel p.small{
+      margin-top:6px;
+    }
+
+    /* ===== Dashboard bottom bar ===== */
+    #dashbar{ display:flex; align-items:center; gap:12px; padding:8px 12px; border-top:1px solid var(--line); background:#fff; }
+    #dashbar .btn{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 12px; cursor:pointer; box-shadow: var(--shadow); font: 600 13px system-ui; }
+
+    #dashboardPanel{ display:none; border-top:1px solid var(--line); background:var(--surface); }
+    #dashboardInner{ max-width: 1200px; margin: 0 auto; padding: 12px 12px 16px; }
+    #dashboardInner h3{ margin: 6px 0 10px; font: 700 16px system-ui; color: var(--ink); }
+    #chartWrap{ overflow-x:auto; background:#fff; border:1px solid var(--line); border-radius:12px; padding:8px; box-shadow: var(--shadow); }
+    #chart{ display:block; width:100%; height:340px; }
+    .chart-legend{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .chip{ display:flex; align-items:center; gap:6px; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:999px; padding:4px 8px; }
+    .chip .sw{ width:12px; height:12px; border-radius:50%; border:2px solid #000; }
+
+    /* responsive: su mobile sidebar sopra, mappa sotto */
+    @media (max-width: 768px){
+      #app{
+        flex-direction:column;
+      }
+      #sidebar{
+        width:100%;
+        max-width:none;
+        border-right:none;
+        border-bottom:1px solid var(--line);
+        max-height:45%;
+      }
+      #map{
+        height:55%;
+        min-height:220px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- PANNELLO LATERALE WEBGIS -->
+    <aside id="sidebar">
+      <h2>Uniss Soil WebGIS</h2>
+
+      <!-- CLASSIFICAZIONE DINAMICA (points) -->
+      <div class="panel-section">
+        <h3>Classificazione punti Cloud</h3>
+        <div class="side-toggle">
+          <input id="toggleClassify" type="checkbox" checked />
+          <span>Abilita classificazione</span>
+        </div>
+        <label for="classField">Campo per la classificazione</label>
+        <select id="classField">
+          <!-- aggiungi qui altri campi se li hai in "points" -->
+          <option value="land_cover" selected>Land Cover</option>
+          <option value="name">Nome</option>
+          <option value="progetto">Progetto</option>
+        </select>
+        <p class="small">Il campo deve esistere nei Punti <code>Cloud</code>.</p>
+        <div id="legend"></div>
+      </div>
+
+      <!-- SELEZIONE PER ATTRIBUTO + SPAZIALE (accuracy_points) -->
+      <div class="panel-section">
+        <h3>Selezione (punti legacy)</h3>
+        <p class="small">Lavora sui punti <code>Legacy</code> (accuracy_points).</p>
+        <label for="attrLandCover">Valore Land Cover (es. 1A, 1B…)</label>
+        <input id="attrLandCover" type="text" placeholder="Es. 1A" />
+        <button id="btnSelectLandCover" type="button">Seleziona per Land Cover</button>
+        <button id="btnSpatialSelect" type="button">Seleziona area (poligono)</button>
+        <button id="btnLegacyList" type="button" class="secondary">Elenco punti LEGACY (sampling)</button>
+        <button id="btnLegacyTableList" type="button" class="secondary">Elenco LEGACY (completo)</button>
+        <button id="btnClearSelection" type="button" class="secondary">Pulisci selezione</button>
+        <p id="selectionInfo" class="selection-info">Nessuna selezione</p>
+      </div>
+
+      <!-- EXPORT (legacy) -->
+      <div class="panel-section">
+        <h3>Esporta punti legacy</h3>
+        <p class="small">
+          Se è presente una selezione, verranno esportati solo i punti selezionati.
+          In caso contrario verranno esportati tutti i punti <code>Legacy</code> (accuracy_points).
+        </p>
+        <button id="btnExportGeoJSON" type="button">Export GeoJSON</button>
+        <button id="btnExportCSV" type="button">Export CSV</button>
+      </div>
+    </aside>
+
+    <!-- MAPPA -->
+    <div id="map"></div>
+  </div>
+
+  <!-- Modal elenco punti (cloud / points) -->
+  <div class="modal-backdrop" id="pointsModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pointsTitle">
+      <header>
+        <h4 id="pointsTitle">Elenco punti (cloud)</h4>
+        <button class="close" id="closeModalBtn">Chiudi</button>
+      </header>
+      <div class="search">
+        <input id="pointsSearch" type="search" placeholder="Cerca per nome…" />
+      </div>
+      <div class="list" id="pointsList"></div>
+    </div>
+  </div>
+
+  <!-- Modal elenco punti legacy (accuracy_points) -->
+  <div class="modal-backdrop" id="accuracyModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="accuracyTitle">
+      <header>
+        <h4 id="accuracyTitle">Elenco punti legacy (accuracy_points)</h4>
+        <button class="close" id="closeAccuracyModalBtn">Chiudi</button>
+      </header>
+      <div class="search">
+        <input id="accuracySearch" type="search" placeholder="Cerca per nome, codice o land cover…" />
+      </div>
+      <div style="display:flex; gap:8px; margin:4px 0 6px; flex-wrap:wrap;">
+        <button class="btn-small" id="accSelectAll" type="button">Seleziona tutti</button>
+        <button class="btn-small" id="accClearAll" type="button">Pulisci selezione</button>
+        <button class="btn-small" id="accExportKML" type="button">Esporta KML</button>
+      </div>
+      <div class="list" id="accuracyList"></div>
+    </div>
+  </div>
+
+  <!-- NUOVO: Modal elenco punti tabella LEGACY -->
+  <div class="modal-backdrop" id="legacyModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="legacyTitle">
+      <header>
+        <h4 id="legacyTitle">Elenco punti LEGACY (completo)</h4>
+        <button class="close" id="closeLegacyModalBtn">Chiudi</button>
+      </header>
+      <div class="search">
+        <input id="legacySearch" type="search" placeholder="Cerca per name, codice o new_name…" />
+      </div>
+      <div style="display:flex; gap:8px; margin:4px 0 6px; flex-wrap:wrap;">
+        <button class="btn-small" id="legacySelectAll" type="button">Seleziona tutti</button>
+        <button class="btn-small" id="legacyClearAll" type="button">Pulisci selezione</button>
+        <button class="btn-small" id="legacyExportKML" type="button">Esporta KML</button>
+      </div>
+      <div class="list" id="legacyList"></div>
+    </div>
+  </div>
+
+  <!-- Dashboard bottom -->
+  <div id="dashbar">
+    <button id="toggleDashboard" class="btn" type="button">Dashboard</button>
+    <a class="btn" href="https://r66282309-hub.github.io/soilsample/uniss_survey.html" target="_blank" rel="noopener">Survey</a>
+    <a class="btn" href="https://r66282309-hub.github.io/soilsample/soilsample.html" target="_blank" rel="noopener">Soil Sample</a>
+    <div style="font: 500 13px system-ui; color: var(--muted);"></div>
+  </div>
+  <div id="dashboardPanel">
+    <div id="dashboardInner">
+      <h3 id="dashTitle">Distribuzione punti per land_cover</h3>
+      <div id="chartWrap">
+        <svg id="chart" role="img" aria-label="Grafico a barre dei conteggi per campo di classificazione"></svg>
+      </div>
+      <div class="chart-legend" id="chartLegend"></div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    //  CONFIG
+    // =========================
+    const START_VIEW = [40.0, 9.0];
+    const START_ZOOM = 8;
+
+    // Supabase
+    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+    const SUPABASE_ANON_KEY =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const ACCURACY_TABLE = 'accuracy_points';
+
+    // =========================
+    //  MAPPA
+    // =========================
+    const map = L.map('map').setView(START_VIEW, START_ZOOM);
+
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+    });
+    const opentopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17, attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap'
+    });
+    const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    });
+    const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    });
+
+    // Layer MAPPALI da ArcGIS FeatureServer (cadastrale)
+    const MAPPALI_MIN_ZOOM = 14;
+
+    const mappaliLayer = L.esri.featureLayer({
+      url: 'https://services-eu1.arcgis.com/6uZFwg9yNy5wD4RR/arcgis/rest/services/Mappali/FeatureServer/0',
+      minZoom: MAPPALI_MIN_ZOOM,
+      style: function (feature) {
+        return {
+          color: '#ff0000',
+          weight: 1,
+          fillOpacity: 0
+        };
+      },
+      onEachFeature: function (feature, layer) {
+        const attrs = feature.properties || feature.attributes || {};
+        const label = attrs.LABEL || attrs.NUMERO || attrs.ID || '';
+        if (label) {
+          layer.bindTooltip(String(label), {
+            permanent: true,
+            direction: 'center',
+            className: 'parcel-label'
+          });
+        }
+      }
+    });
+
+    // Usa markercluster per “concentrato” < 14, dettagli >= 14
+    const clusterOptions = {
+      disableClusteringAtZoom: 14,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false
+    };
+
+    const cloudLayer    = L.markerClusterGroup(clusterOptions).addTo(map); // punti "points"
+    const accuracyLayer = L.markerClusterGroup(clusterOptions);            // accuracy_points
+    const legacyLayer   = L.markerClusterGroup(clusterOptions);            // legacy
+
+    const CLOUD_LABEL_ZOOM  = 14;
+    const ACC_LABEL_ZOOM    = 14;
+    const LEGACY_LABEL_ZOOM = 14;
+
+    const baseLayers = {
+      'OSM Standard': osm,
+      'Ortofoto Esri': esri,
+      'OpenTopoMap': opentopo,
+      'Carto Light': cartoLight,
+      'Carto Dark': cartoDark
+    };
+    const overlays = {
+      'Punti cloud (Survey Points)': cloudLayer,
+      'Punti Legacy (Uniss Legacy Pnts)': accuracyLayer,
+      'Punti Legacy (Completo)': legacyLayer,
+      'Mappali catastali (zoom >14)': mappaliLayer
+    };
+    L.control.layers(baseLayers, overlays, { position:'topright', collapsed:false }).addTo(map);
+
+    // modalità corrente del draw:
+    // null | 'selection_polygon' | 'measure_line' | 'measure_polygon'
+    let currentDrawMode = null;
+
+    // =========================
+    //  CLASSIFICAZIONE (cloud points)
+    // =========================
+    let classificationEnabled = true;
+    let currentClassField = 'land_cover'; // può cambiare da dropdown
+
+    const PALETTE = [
+      '#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd',
+      '#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf',
+      '#393b79','#637939','#8c6d31','#843c39','#7b4173',
+      '#3182bd','#e6550d','#31a354','#756bb1','#636363',
+      '#9c9ede','#b5cf6b','#e7ba52','#ad494a','#9c9ede'
+    ];
+    const categoryColors = new Map(); // categoria -> colore
+
+    function assignColorForCategory(cat){
+      const key = String(cat || '').trim() || '(n/d)';
+      if (categoryColors.has(key)) return categoryColors.get(key);
+      const idx = categoryColors.size % PALETTE.length;
+      const chosen = PALETTE[idx] || '#444';
+      categoryColors.set(key, chosen);
+      return chosen;
+    }
+
+    function styleForPoint(props){
+      if (!classificationEnabled){
+        return { radius: 7, weight: 2, color: '#2563eb', fillOpacity: 0.8 };
+      }
+      const v = props?.[currentClassField] ?? props?.land_cover ?? '';
+      const key = String(v).trim() || '(n/d)';
+      const color = assignColorForCategory(key);
+      return { radius: 7, weight: 2, color, fillOpacity: 0.85 };
+    }
+
+    // =========================
+    //  INDICI E UTILITY
+    // =========================
+    const cloudIndex    = new Map();    // id -> { marker, ...props (points) }
+    const accuracyIndex = new Map();    // id -> { marker, ...props (accuracy_points) }
+    const legacyIndex   = new Map();    // id -> { marker, ...props (legacy) }
+
+    let selectedIds = new Set(); // id dei punti LEGACY (accuracy) selezionati
+
+    function escapeHtml(s){
+      return String(s)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#039;");
+    }
+
+    function isValidLatLon(lat, lon){
+      return Number.isFinite(lat) && Number.isFinite(lon) &&
+             lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    function buildId(name, lat, lon){
+      return `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}|${(name||'').trim().slice(0,80)}`;
+    }
+
+    function resolvePhotoUrl(photo_url){
+      const raw = String(photo_url || '').trim();
+      if (!raw) return '';
+      if (/^https?:\/\//i.test(raw)) return raw;
+      try{
+        const { data } = supabase.storage.from('soil_photos').getPublicUrl(raw);
+        return data?.publicUrl || '';
+      } catch(e){
+        return '';
+      }
+    }
+
+    function getAny(obj, keys){
+      for (const k of keys){
+        if (k in obj && obj[k] != null && obj[k] !== '') return obj[k];
+        const low = k.toLowerCase();
+        for (const kk of Object.keys(obj)){
+          if (kk.toLowerCase() === low) return obj[kk];
+        }
+      }
+      return undefined;
+    }
+
+    // =========================
+    //  CLOUD POINTS (points)
+    // =========================
+    function addCloudPoint(row){
+      const name = row.name || '';
+      const lat  = Number(row.lat);
+      const lon  = Number(row.lon);
+      if (!isValidLatLon(lat, lon)) return;
+
+      const land_cover = row.land_cover || '';
+      const photo_url  = row.photo_url || '';
+
+      const props = {
+        ...row,
+        name,
+        lat,
+        lon,
+        land_cover,
+        photo_url
+      };
+
+      const marker = L.circleMarker([lat,lon], styleForPoint(props));
+      marker.options._labelName = name;
+      marker.options._props = props;
+
+      const img = resolvePhotoUrl(photo_url);
+      const imgHtml = img ? `<div style="margin-top:6px;"><img src="${img}" alt="foto" style="max-width:220px;max-height:160px;border-radius:8px;display:block;"></div>` : '';
+      const lcHtml  = land_cover ? `<div style="margin-top:6px; font-size:12px"><b>Land cover:</b> ${escapeHtml(land_cover)}</div>` : '';
+
+      marker.bindPopup(`<b>${escapeHtml(name || '')}</b>${lcHtml}${imgHtml}`);
+
+      const id = buildId(name, lat, lon);
+      marker.options.customId = id;
+
+      cloudLayer.addLayer(marker);
+      cloudIndex.set(id, { marker, ...props });
+    }
+
+    async function loadSupabasePoints(){
+      const { data, error } = await supabase
+        .from('points')
+        .select('name,lat,lon,photo_url,land_cover,progetto')
+        .order('created_at', { ascending:false })
+        .limit(5000);
+
+      if (error){
+        console.warn('Supabase SELECT points', error.message);
+        return;
+      }
+
+      cloudLayer.clearLayers();
+      cloudIndex.clear();
+      selectedIds = new Set();
+
+      (data || []).forEach(addCloudPoint);
+
+      applyClassification();
+      updateCloudLabels();
+      if (pointsModal.style.display === 'flex') renderPointsList();
+    }
+
+    function applyClassification(){
+      cloudLayer.eachLayer((m)=>{
+        const props = m.options._props || {};
+        const baseStyle = styleForPoint(props);
+        if (m.setStyle) m.setStyle(baseStyle);
+      });
+      renderLegend();
+      updateDashboard();
+    }
+
+    // =========================
+    //  PUNTI LEGACY (accuracy_points)
+    // =========================
+    let accuracyLoaded = false;
+
+    function addAccuracyPoint(row){
+      const lat = Number(getAny(row, ['Lat','lat','latitude']));
+      const lon = Number(getAny(row, ['Lon','lon','lng','long','longitude']));
+      if (!isValidLatLon(lat, lon)) return;
+
+      const name   = getAny(row, ['Name','Nuovo','name','nome']) || '';
+      const codice = getAny(row, ['CODICE','codice']) || '';
+      const gps    = getAny(row, ['GPS','gps']) || '';
+      const acc1   = getAny(row, ['Accuratezza 1','accuratezza_1','accuratezza1']) || '';
+      const acc2   = getAny(row, ['Accuratezza 2','accuratezza_2','accuratezza2']) || '';
+      const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) ?? '';
+      const land_cover = getAny(row, ['land_cover','Land Cover','LandCover','LC','lc']) || '';
+
+      const status = String(acc2).toLowerCase();
+      let color = '#3388ff';
+      if (status.includes('errore')) color = '#dc2626';
+      else if (status.includes('verific')) color = '#f59e0b';
+      else if (status.includes('corretto') || status.includes('giusto')) color = '#059669';
+
+      const marker = L.circleMarker([lat,lon], {
+        radius: 6,
+        weight: 2,
+        color,
+        fillOpacity: 0.7
+      });
+      marker.options._labelName = name;
+
+      const id = buildId(name, lat, lon);
+      marker.options.customId = id;
+
+      const props = {
+        ...row,
+        name,
+        lat,
+        lon,
+        land_cover,
+        codice,
+        gps,
+        acc1,
+        acc2,
+        degr
+      };
+      accuracyIndex.set(id, { marker, ...props });
+
+      const htmlParts = [];
+      htmlParts.push('<div style="min-width:220px">');
+      htmlParts.push('<div><b>' + escapeHtml(name || '') + '</b></div>');
+      if (codice) htmlParts.push('<div><small>Codice: ' + escapeHtml(codice) + '</small></div>');
+      htmlParts.push('<div style="margin-top:6px; font-size:13px">');
+      if (gps)  htmlParts.push('GPS: <b>' + escapeHtml(gps)  + '</b><br>');
+      if (acc1) htmlParts.push('Accuratezza 1: <b>' + escapeHtml(acc1) + '</b><br>');
+      if (acc2) htmlParts.push('Accuratezza 2: <b>' + escapeHtml(acc2) + '</b><br>');
+      if (degr) htmlParts.push('Land Degradation: <b>' + escapeHtml(degr) + '</b><br>');
+      if (land_cover) htmlParts.push('Land Cover: <b>' + escapeHtml(land_cover) + '</b><br>');
+      htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
+      htmlParts.push('</div></div>');
+
+      marker.bindPopup(htmlParts.join(''));
+      accuracyLayer.addLayer(marker);
+    }
+
+    function updateAccuracyLabels(){
+      const show = map.getZoom() >= ACC_LABEL_ZOOM;
+      accuracyLayer.eachLayer((lyr) => {
+        const nm = lyr?.options?._labelName || '';
+        const hasTooltip = !!lyr.getTooltip && !!lyr.getTooltip();
+        if (show && nm && !hasTooltip){
+          lyr.bindTooltip(nm, {
+            permanent:true,
+            direction:'top',
+            offset:[0,-8],
+            className:'name-label'
+          });
+        } else if (!show && hasTooltip){
+          lyr.unbindTooltip();
+        }
+      });
+    }
+
+    async function loadAccuracyPoints(){
+      const { data, error } = await supabase
+        .from(ACCURACY_TABLE)
+        .select('*')
+        .limit(20000);
+      if (error){
+        console.warn('Supabase SELECT accuracy', error.message);
+        alert('Errore nel leggere la tabella di accuratezza.');
+        return;
+      }
+      accuracyLayer.clearLayers();
+      accuracyIndex.clear();
+      (data || []).forEach(addAccuracyPoint);
+      accuracyLoaded = true;
+      updateAccuracyLabels();
+    }
+
+    // =========================
+    //  NUOVO LAYER LEGACY (tabella "legacy")
+    // =========================
+    let legacyLoaded = false;
+
+    function addLegacyPoint(row){
+      const lat = Number(row.lat);
+      const lon = Number(row.lon);
+      if (!isValidLatLon(lat, lon)) return;
+
+      const idn          = row.idn ?? '';
+      const codice       = row.codice ?? '';
+      const name         = row.name || '';
+      const new_name     = row.new_name ?? '';
+      const campionabile = row.campionabile ?? '';
+
+      const marker = L.circleMarker([lat,lon], {
+        radius: 6,
+        weight: 2,
+        color: '#7c3aed',
+        fillOpacity: 0.8
+      });
+
+      marker.options._labelName = name;
+
+      const id = buildId(name, lat, lon);
+      marker.options.customId = id;
+
+      const props = {
+        ...row,
+        lat,
+        lon,
+        idn,
+        codice,
+        name,
+        new_name,
+        campionabile
+      };
+      legacyIndex.set(id, { marker, ...props });
+
+      const htmlParts = [];
+      htmlParts.push('<div style="min-width:220px">');
+      htmlParts.push('<div><b>' + escapeHtml(name || '') + '</b></div>');
+      if (idn !== '')  htmlParts.push('<div><small>IDN: ' + escapeHtml(idn) + '</small></div>');
+      if (codice)      htmlParts.push('<div><small>Codice: ' + escapeHtml(codice) + '</small></div>');
+      htmlParts.push('<div style="margin-top:6px; font-size:13px">');
+      if (new_name)    htmlParts.push('Nuovo nome: <b>' + escapeHtml(new_name) + '</b><br>');
+      if (campionabile !== '') htmlParts.push('Campionabile: <b>' + escapeHtml(campionabile) + '</b><br>');
+      htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
+      htmlParts.push('</div></div>');
+
+      marker.bindPopup(htmlParts.join(''));
+      legacyLayer.addLayer(marker);
+    }
+
+    function updateLegacyLabels(){
+      const show = map.getZoom() >= LEGACY_LABEL_ZOOM;
+      legacyLayer.eachLayer((lyr) => {
+        const nm = lyr?.options?._labelName || '';
+        const hasTooltip = !!lyr.getTooltip && !!lyr.getTooltip();
+        if (show && nm && !hasTooltip){
+          lyr.bindTooltip(nm, {
+            permanent:true,
+            direction:'top',
+            offset:[0,-8],
+            className:'name-label'
+          });
+        } else if (!show && hasTooltip){
+          lyr.unbindTooltip();
+        }
+      });
+    }
+
+    async function loadLegacyPoints(){
+      const { data, error } = await supabase
+        .from('legacy')
+        .select('*')
+        .limit(20000);
+      if (error){
+        console.warn('Supabase SELECT legacy', error.message);
+        alert('Errore nel leggere la tabella legacy.');
+        return;
+      }
+      legacyLayer.clearLayers();
+      legacyIndex.clear();
+      (data || []).forEach(addLegacyPoint);
+      legacyLoaded = true;
+      updateLegacyLabels();
+    }
+
+    // overlayadd: gestisco accuracy, legacy e catasto
+    map.on('overlayadd', (e) => {
+      if (e.layer === accuracyLayer && !accuracyLoaded){
+        loadAccuracyPoints();
+      }
+      if (e.layer === accuracyLayer){
+        updateAccuracyLabels();
+      }
+
+      if (e.layer === legacyLayer && !legacyLoaded){
+        loadLegacyPoints();
+      }
+      if (e.layer === legacyLayer){
+        updateLegacyLabels();
+      }
+
+      if (e.layer === mappaliLayer && map.getZoom() < MAPPALI_MIN_ZOOM){
+        L.popup({ closeButton: false, offset: [0, -10] })
+          .setLatLng(map.getCenter())
+          .setContent('Zoom più vicino per visualizzare i mappali (≥16).')
+          .openOn(map);
+      }
+    });
+
+    // =========================
+    //  MODAL ELENCO PUNTI (cloud)
+    // =========================
+    const pointsModal = document.getElementById('pointsModal');
+    const pointsList  = document.getElementById('pointsList');
+    const pointsSearch= document.getElementById('pointsSearch');
+
+    function openPointsModal(){
+      renderPointsList();
+      pointsModal.style.display = 'flex';
+      pointsSearch.value = '';
+      pointsSearch.focus();
+    }
+    function closePointsModal(){
+      pointsModal.style.display = 'none';
+    }
+
+    function renderPointsList(){
+      const items = Array.from(cloudIndex.values()).map(rec => ({
+        id: rec.marker.options.customId,
+        name: rec.name || '',
+        lat: Number(rec.lat),
+        lon: Number(rec.lon),
+        land_cover: rec.land_cover || '',
+        photo_url: rec.photo_url || ''
+      }));
+
+      const q = (pointsSearch.value || '').toLowerCase().trim();
+      const filt = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items;
+
+      if (!filt.length){
+        pointsList.innerHTML = `<div class="note" style="padding:6px 2px;">Nessun punto da mostrare.</div>`;
+        return;
+      }
+
+      pointsList.innerHTML = filt.map(it => {
+        const img = it.photo_url && resolvePhotoUrl(it.photo_url);
+        return `
+          <div class="point-item">
+            <div>
+              <div><strong>${escapeHtml(it.name || '(senza nome)')}</strong></div>
+              <div class="meta">Lat: ${it.lat.toFixed(6)} • Lon: ${it.lon.toFixed(6)}</div>
+              ${ it.land_cover ? `<div class="meta">Land cover: <b>${escapeHtml(it.land_cover)}</b></div>` : '' }
+              ${ img ? `<img src="${img}" alt="foto" style="margin-top:6px;max-width:140px;max-height:100px;border-radius:8px;display:block;">` : '' }
+            </div>
+            <button class="go" data-id="${it.id}" title="Zoom al punto">Vai</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function zoomToPointById(id){
+      const rec = cloudIndex.get(id);
+      if (!rec) return;
+      const { marker, lat, lon } = rec;
+      map.setView([lat, lon], Math.max(map.getZoom(), 17), { animate: true });
+      if (marker.getPopup()) marker.openPopup();
+      else marker.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}`).openPopup();
+    }
+
+    document.getElementById('closeModalBtn').addEventListener('click', closePointsModal);
+    document.getElementById('pointsModal').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('pointsModal')) closePointsModal();
+    });
+    pointsSearch.addEventListener('input', renderPointsList);
+    pointsList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button.go');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      zoomToPointById(id);
+    });
+
+    const ListControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd: function(map){
+        const div = L.DomUtil.create('div', 'leaflet-bar');
+        const btn = L.DomUtil.create('button', 'list-control-btn', div);
+        btn.type = 'button';
+        btn.title = 'Elenco punti (Supabase points)';
+        btn.textContent = 'CLOUD';
+        btn.addEventListener('click', openPointsModal);
+        L.DomEvent.disableClickPropagation(btn);
+        return div;
+      }
+    });
+
+    // =========================
+    //  MODAL ELENCO PUNTI LEGACY (accuracy_points)
+    // =========================
+    const accuracyModal = document.getElementById('accuracyModal');
+    const accuracyListEl = document.getElementById('accuracyList');
+    const accuracySearchEl = document.getElementById('accuracySearch');
+
+    async function openAccuracyModal(){
+      if (!accuracyLoaded){
+        await loadAccuracyPoints();
+      }
+      renderAccuracyList();
+      accuracyModal.style.display = 'flex';
+      if (accuracySearchEl){
+        accuracySearchEl.value = '';
+        accuracySearchEl.focus();
+      }
+    }
+
+    function closeAccuracyModal(){
+      accuracyModal.style.display = 'none';
+    }
+
+    function renderAccuracyList(){
+      if (!accuracyListEl) return;
+      const items = Array.from(accuracyIndex.values()).map(rec => ({
+        id: rec.marker.options.customId,
+        name: rec.name || '',
+        codice: rec.codice || '',
+        lat: Number(rec.lat),
+        lon: Number(rec.lon),
+        land_cover: rec.land_cover || '',
+        acc1: rec.acc1 || '',
+        acc2: rec.acc2 || ''
+      }));
+
+      const q = (accuracySearchEl?.value || '').toLowerCase().trim();
+      const filtered = q
+        ? items.filter(it =>
+            it.name.toLowerCase().includes(q) ||
+            it.codice.toLowerCase().includes(q) ||
+            it.land_cover.toLowerCase().includes(q)
+          )
+        : items;
+
+      if (!filtered.length){
+        accuracyListEl.innerHTML = `<div class="note" style="padding:6px 2px;">Nessun punto legacy da mostrare.</div>`;
+        return;
+      }
+
+      accuracyListEl.innerHTML = filtered.map(it => `
+        <div class="point-item">
+          <div style="display:flex; align-items:flex-start; gap:8px;">
+            <input type="checkbox" class="acc-check" data-id="${it.id}" style="margin-top:4px;">
+            <div>
+              <div><strong>${escapeHtml(it.name || '(senza nome)')}</strong></div>
+              ${it.codice ? `<div class="meta">Codice: ${escapeHtml(it.codice)}</div>` : ''}
+              <div class="meta">Lat: ${it.lat.toFixed(6)} • Lon: ${it.lon.toFixed(6)}</div>
+              ${it.land_cover ? `<div class="meta">LC: <b>${escapeHtml(it.land_cover)}</b></div>` : ''}
+              ${it.acc2 ? `<div class="meta">Acc2: ${escapeHtml(it.acc2)}</div>` : ''}
+            </div>
+          </div>
+          <button class="go" data-id="${it.id}" title="Zoom al punto">Vai</button>
+        </div>
+      `).join('');
+    }
+
+    function exportAccuracyKML(){
+      if (!accuracyListEl){
+        alert('Lista legacy non disponibile.');
+        return;
+      }
+      const checks = Array.from(accuracyListEl.querySelectorAll('.acc-check'));
+      const selectedIdsList = checks.filter(ch => ch.checked).map(ch => ch.getAttribute('data-id'));
+      let records;
+      if (selectedIdsList.length){
+         records = selectedIdsList.map(id => accuracyIndex.get(id)).filter(Boolean);
+      } else {
+         records = Array.from(accuracyIndex.values());
+      }
+      if (!records.length){
+        alert('Nessun punto legacy da esportare.');
+        return;
+      }
+      let kml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      kml += `<kml xmlns="http://www.opengis.net/kml/2.2">\n`;
+      kml += `<Document>\n<name>accuracy_points</name>\n`;
+      records.forEach(rec => {
+         const name = rec.name || rec.codice || '';
+         const descParts = [];
+         if (rec.codice) descParts.push('Codice: ' + rec.codice);
+         if (rec.land_cover) descParts.push('Land cover: ' + rec.land_cover);
+         if (rec.acc1) descParts.push('Acc1: ' + rec.acc1);
+         if (rec.acc2) descParts.push('Acc2: ' + rec.acc2);
+         if (rec.degr) descParts.push('Degradation: ' + rec.degr);
+         const desc = descParts.join('\n');
+         kml += `<Placemark>\n`;
+         if (name) kml += `<name>${escapeHtml(name)}</name>\n`;
+         if (desc) kml += `<description><![CDATA[${desc}]]></description>\n`;
+         kml += `<Point><coordinates>${rec.lon},${rec.lat},0</coordinates></Point>\n`;
+         kml += `</Placemark>\n`;
+      });
+      kml += `</Document>\n</kml>`;
+      const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedIdsList.length ? 'legacy_accuracy_selected.kml' : 'legacy_accuracy_all.kml';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('btnLegacyList')?.addEventListener('click', () => {
+      openAccuracyModal();
+    });
+
+    document.getElementById('closeAccuracyModalBtn')?.addEventListener('click', closeAccuracyModal);
+    accuracyModal.addEventListener('click', (e)=>{
+      if (e.target === accuracyModal) closeAccuracyModal();
+    });
+    accuracySearchEl?.addEventListener('input', renderAccuracyList);
+
+    document.getElementById('accSelectAll')?.addEventListener('click', ()=>{
+      accuracyListEl?.querySelectorAll('.acc-check').forEach(ch => ch.checked = true);
+    });
+    document.getElementById('accClearAll')?.addEventListener('click', ()=>{
+      accuracyListEl?.querySelectorAll('.acc-check').forEach(ch => ch.checked = false);
+    });
+    document.getElementById('accExportKML')?.addEventListener('click', exportAccuracyKML);
+
+    accuracyListEl?.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button.go');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const rec = accuracyIndex.get(id);
+      if (!rec) return;
+      map.setView([rec.lat, rec.lon], Math.max(map.getZoom(), 17), {animate:true});
+      rec.marker.openPopup();
+    });
+
+    // =========================
+    //  NUOVO MODAL ELENCO LEGACY (tabella legacy)
+    // =========================
+    const legacyModal = document.getElementById('legacyModal');
+    const legacyListEl = document.getElementById('legacyList');
+    const legacySearchEl = document.getElementById('legacySearch');
+
+    async function openLegacyTableModal(){
+      if (!legacyLoaded){
+        await loadLegacyPoints();
+      }
+      renderLegacyList();
+      legacyModal.style.display = 'flex';
+      if (legacySearchEl){
+        legacySearchEl.value = '';
+        legacySearchEl.focus();
+      }
+    }
+
+    function closeLegacyModal(){
+      legacyModal.style.display = 'none';
+    }
+
+    function renderLegacyList(){
+      if (!legacyListEl) return;
+      const items = Array.from(legacyIndex.values()).map(rec => ({
+        id: rec.marker.options.customId,
+        idn: rec.idn ?? '',
+        codice: rec.codice ?? '',
+        name: rec.name || '',
+        new_name: rec.new_name ?? '',
+        campionabile: rec.campionabile ?? '',
+        lat: Number(rec.lat),
+        lon: Number(rec.lon)
+      }));
+
+      const q = (legacySearchEl?.value || '').toLowerCase().trim();
+      const filtered = q
+        ? items.filter(it =>
+            (it.name || '').toLowerCase().includes(q) ||
+            (it.codice || '').toLowerCase().includes(q) ||
+            (it.new_name || '').toLowerCase().includes(q)
+          )
+        : items;
+
+      if (!filtered.length){
+        legacyListEl.innerHTML = `<div class="note" style="padding:6px 2px;">Nessun punto LEGACY da mostrare.</div>`;
+        return;
+      }
+
+      legacyListEl.innerHTML = filtered.map(it => `
+        <div class="point-item">
+          <div style="display:flex; align-items:flex-start; gap:8px;">
+            <input type="checkbox" class="legacy-check" data-id="${it.id}" style="margin-top:4px;">
+            <div>
+              <div><strong>${escapeHtml(it.name || '(senza nome)')}</strong></div>
+              ${it.idn !== '' ? `<div class="meta">IDN: ${escapeHtml(it.idn)}</div>` : ''}
+              ${it.codice ? `<div class="meta">Codice: ${escapeHtml(it.codice)}</div>` : ''}
+              ${it.new_name ? `<div class="meta">Nuovo nome: ${escapeHtml(it.new_name)}</div>` : ''}
+              ${it.campionabile !== '' ? `<div class="meta">Campionabile: ${escapeHtml(it.campionabile)}</div>` : ''}
+              <div class="meta">Lat: ${it.lat.toFixed(6)} • Lon: ${it.lon.toFixed(6)}</div>
+            </div>
+          </div>
+          <button class="go" data-id="${it.id}" title="Zoom al punto">Vai</button>
+        </div>
+      `).join('');
+    }
+
+    function exportLegacyKML(){
+      if (!legacyListEl){
+        alert('Lista LEGACY non disponibile.');
+        return;
+      }
+      const checks = Array.from(legacyListEl.querySelectorAll('.legacy-check'));
+      const selectedIdsList = checks.filter(ch => ch.checked).map(ch => ch.getAttribute('data-id'));
+      let records;
+      if (selectedIdsList.length){
+        records = selectedIdsList.map(id => legacyIndex.get(id)).filter(Boolean);
+      } else {
+        records = Array.from(legacyIndex.values());
+      }
+      if (!records.length){
+        alert('Nessun punto LEGACY da esportare.');
+        return;
+      }
+
+      let kml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      kml += `<kml xmlns="http://www.opengis.net/kml/2.2">\n`;
+      kml += `<Document>\n<name>legacy_points</name>\n`;
+
+      records.forEach(rec => {
+        const name = rec.name || rec.codice || '';
+        const descParts = [];
+        if (rec.idn !== undefined && rec.idn !== '') descParts.push('IDN: ' + rec.idn);
+        if (rec.codice) descParts.push('Codice: ' + rec.codice);
+        if (rec.new_name) descParts.push('Nuovo nome: ' + rec.new_name);
+        if (rec.campionabile !== undefined && rec.campionabile !== '') descParts.push('Campionabile: ' + rec.campionabile);
+        const desc = descParts.join('\n');
+
+        kml += `<Placemark>\n`;
+        if (name) kml += `<name>${escapeHtml(name)}</name>\n`;
+        if (desc) kml += `<description><![CDATA[${desc}]]></description>\n`;
+        kml += `<Point><coordinates>${rec.lon},${rec.lat},0</coordinates></Point>\n`;
+        kml += `</Placemark>\n`;
+      });
+
+      kml += `</Document>\n</kml>`;
+
+      const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedIdsList.length ? 'legacy_table_selected.kml' : 'legacy_table_all.kml';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('btnLegacyTableList')?.addEventListener('click', () => {
+      openLegacyTableModal();
+    });
+
+    document.getElementById('closeLegacyModalBtn')?.addEventListener('click', closeLegacyModal);
+    legacyModal.addEventListener('click', (e)=>{
+      if (e.target === legacyModal) closeLegacyModal();
+    });
+    legacySearchEl?.addEventListener('input', renderLegacyList);
+
+    document.getElementById('legacySelectAll')?.addEventListener('click', ()=>{
+      legacyListEl?.querySelectorAll('.legacy-check').forEach(ch => ch.checked = true);
+    });
+    document.getElementById('legacyClearAll')?.addEventListener('click', ()=>{
+      legacyListEl?.querySelectorAll('.legacy-check').forEach(ch => ch.checked = false);
+    });
+    document.getElementById('legacyExportKML')?.addEventListener('click', exportLegacyKML);
+
+    legacyListEl?.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button.go');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const rec = legacyIndex.get(id);
+      if (!rec) return;
+      map.setView([rec.lat, rec.lon], Math.max(map.getZoom(), 17), {animate:true});
+      rec.marker.openPopup();
+    });
+
+    // Controllo misura
+    const MeasureControl = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function(map){
+        const container = L.DomUtil.create('div', 'leaflet-bar');
+        const panel = L.DomUtil.create('div', 'measure-panel', container);
+
+        panel.innerHTML = `
+          <h3>Strumento misura</h3>
+          <label for="measureLengthUnit">Unità lunghezza</label>
+          <select id="measureLengthUnit">
+            <option value="m">Metri</option>
+            <option value="km">Chilometri</option>
+          </select>
+          <button id="btnMeasureDistance" type="button">Misura distanza</button>
+
+          <label for="measureAreaUnit">Unità area</label>
+          <select id="measureAreaUnit">
+            <option value="ha">Ettari</option>
+            <option value="km2">km²</option>
+          </select>
+          <button id="btnMeasureArea" type="button">Misura area</button>
+
+          <p class="small" id="measureResult">Nessuna misura</p>
+        `;
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+        return container;
+      }
+    });
+
+    map.addControl(new ListControl());
+    map.addControl(new MeasureControl());
+
+    // =========================
+    //  LEGENDA CLASSIFICAZIONE
+    // =========================
+    function renderLegend(){
+      const cont = document.getElementById('legend');
+      if (!cont) return;
+      if (!classificationEnabled){
+        cont.innerHTML = '<div class="selection-info">Classificazione disattivata</div>';
+        return;
+      }
+      const cats = new Set();
+      cloudIndex.forEach(rec => {
+        const v = rec[currentClassField] ?? rec.land_cover ?? '';
+        const key = String(v).trim() || '(n/d)';
+        cats.add(key);
+        assignColorForCategory(key);
+      });
+      const arr = Array.from(cats).sort((a,b)=>a.localeCompare(b));
+      if (!arr.length){
+        cont.innerHTML = '<div class="selection-info">Nessuna categoria</div>';
+        return;
+      }
+      cont.innerHTML = arr.map(k => {
+        const color = assignColorForCategory(k);
+        return `
+          <div style="display:flex; align-items:center; gap:8px; margin:4px 0;">
+            <span style="display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid ${color}; background:${color};"></span>
+            <span style="font-size:12px">${escapeHtml(k)}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    document.addEventListener('change', (e)=>{
+      if (e.target?.id === 'toggleClassify'){
+        classificationEnabled = !!e.target.checked;
+        applyClassification();
+        updateCloudLabels();
+      }
+      if (e.target?.id === 'classField'){
+        currentClassField = e.target.value || 'land_cover';
+        document.getElementById('dashTitle').textContent =
+          `Distribuzione punti per ${currentClassField}`;
+        applyClassification();
+      }
+    });
+
+    // =========================
+    //  SELEZIONE & EXPORT (accuracy_points)
+    // =========================
+    function updateSelectionInfo(){
+      const el = document.getElementById('selectionInfo');
+      if (!el) return;
+      const n = selectedIds.size;
+      el.textContent = n ? `${n} punti selezionati` : 'Nessuna selezione';
+    }
+
+    function clearSelection(){
+      selectedIds = new Set();
+      accuracyIndex.forEach(rec => {
+        if (rec.marker && rec.marker.setStyle){
+          rec.marker.setStyle({ radius: 6 });
+        }
+      });
+      updateSelectionInfo();
+    }
+
+    function selectByLandCover(){
+      const input = document.getElementById('attrLandCover');
+      if (!input) return;
+
+      const val = input.value.trim().toLowerCase();
+      clearSelection();
+      if (!val) return;
+
+      let count = 0;
+      accuracyIndex.forEach((rec, id) => {
+        const lc = String(rec.land_cover || '').trim().toLowerCase();
+        if (lc === val){
+          selectedIds.add(id);
+          if (rec.marker && rec.marker.setStyle){
+            rec.marker.setStyle({ radius: 9 });
+          }
+          count++;
+        }
+      });
+
+      updateSelectionInfo();
+      if (!count){
+        alert('Nessun punto legacy con questo valore di land_cover.');
+      }
+    }
+
+    function getCurrentSelectionArray(){
+      if (selectedIds.size === 0){
+        return Array.from(accuracyIndex.values());
+      }
+      const arr = [];
+      selectedIds.forEach(id => {
+        const rec = accuracyIndex.get(id);
+        if (rec) arr.push(rec);
+      });
+      return arr;
+    }
+
+    function exportSelectedAsGeoJSON(){
+      const arr = getCurrentSelectionArray();
+      if (!arr.length){
+        alert('Nessun punto da esportare.');
+        return;
+      }
+      const fc = {
+        type:'FeatureCollection',
+        features: arr.map(rec => ({
+          type:'Feature',
+          geometry:{
+            type:'Point',
+            coordinates:[rec.lon, rec.lat]
+          },
+          properties:{
+            name:rec.name || '',
+            land_cover:rec.land_cover || '',
+            codice:rec.codice || '',
+            gps:rec.gps || '',
+            acc1:rec.acc1 || '',
+            acc2:rec.acc2 || '',
+            degr:rec.degr || ''
+          }
+        }))
+      };
+      const blob = new Blob([JSON.stringify(fc)], { type:'application/geo+json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedIds.size ? 'legacy_selection.geojson' : 'legacy_all.geojson';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportSelectedAsCSV(){
+      const arr = getCurrentSelectionArray();
+      if (!arr.length){
+        alert('Nessun punto da esportare.');
+        return;
+      }
+      const header = ['name','lat','lon','land_cover','codice','gps','acc1','acc2','degr'];
+      const rows = [header.join(',')];
+      arr.forEach(rec => {
+        const vals = [
+          rec.name || '',
+          rec.lat,
+          rec.lon,
+          rec.land_cover || '',
+          rec.codice || '',
+          rec.gps || '',
+          rec.acc1 || '',
+          rec.acc2 || '',
+          rec.degr || ''
+        ].map(v => `"${String(v ?? '').replace(/"/g,'""')}"`);
+        rows.push(vals.join(','));
+      });
+      const csv = rows.join('\n');
+      const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedIds.size ? 'legacy_selection.csv' : 'legacy_all.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('btnSelectLandCover')?.addEventListener('click', selectByLandCover);
+    document.getElementById('attrLandCover')?.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter') selectByLandCover();
+    });
+    document.getElementById('btnClearSelection')?.addEventListener('click', clearSelection);
+    document.getElementById('btnExportGeoJSON')?.addEventListener('click', exportSelectedAsGeoJSON);
+    document.getElementById('btnExportCSV')?.addEventListener('click', exportSelectedAsCSV);
+
+    // =========================
+    //  MISURE – funzioni
+    // =========================
+    function getMeasureResultEl(){
+      return document.getElementById('measureResult');
+    }
+
+    function formatLength(m){
+      const unitSel = document.getElementById('measureLengthUnit');
+      const unit = unitSel ? unitSel.value : 'm';
+      if (unit === 'km'){
+        return (m / 1000).toFixed(2) + ' km';
+      }
+      return m.toFixed(1) + ' m';
+    }
+
+    function formatArea(m2){
+      const unitSel = document.getElementById('measureAreaUnit');
+      const unit = unitSel ? unitSel.value : 'ha';
+      if (unit === 'km2'){
+        return (m2 / 1e6).toFixed(3) + ' km²';
+      }
+      return (m2 / 10000).toFixed(2) + ' ha';
+    }
+
+    function showLengthResult(m){
+      const el = getMeasureResultEl();
+      if (!el) return;
+      el.textContent = 'Lunghezza: ' + formatLength(m);
+    }
+
+    function showAreaResult(m2){
+      const el = getMeasureResultEl();
+      if (!el) return;
+      el.textContent = 'Area: ' + formatArea(m2);
+    }
+
+    document.addEventListener('click', (e)=>{
+      const btnDist = e.target.closest('#btnMeasureDistance');
+      const btnArea = e.target.closest('#btnMeasureArea');
+
+      if (btnDist){
+        currentDrawMode = 'measure_line';
+        const el = getMeasureResultEl();
+        if (el) el.textContent = 'Disegna una linea sulla mappa…';
+        const toolbar = drawControl._toolbars?.draw;
+        if (toolbar && toolbar._modes && toolbar._modes.polyline){
+          toolbar._modes.polyline.handler.enable();
+        } else {
+          alert('Strumento linea non disponibile.');
+        }
+      }
+
+      if (btnArea){
+        currentDrawMode = 'measure_polygon';
+        const el = getMeasureResultEl();
+        if (el) el.textContent = 'Disegna un poligono sulla mappa…';
+        const toolbar = drawControl._toolbars?.draw;
+        if (toolbar && toolbar._modes && toolbar._modes.polygon){
+          toolbar._modes.polygon.handler.enable();
+        } else {
+          alert('Strumento poligono non disponibile.');
+        }
+      }
+    });
+
+    // =========================
+    //  SELEZIONE SPAZIALE (poligono) - accuracy_points
+    // =========================
+    const drawnItems = new L.FeatureGroup().addTo(map);
+
+    const drawControl = new L.Control.Draw({
+      position:'topleft',
+      draw:{
+        marker:false,
+        circle:false,
+        circlemarker:false,
+        rectangle:false,
+        polyline:{
+          shapeOptions:{ color:'#0f766e' }
+        },
+        polygon:{
+          allowIntersection:false,
+          showArea:true,
+          shapeOptions:{ color:'#2563eb' }
+        }
+      },
+      edit:{
+        featureGroup: drawnItems,
+        edit:false,
+        remove:true
+      }
+    });
+    map.addControl(drawControl);
+
+    function pointInRing(point, ring){
+      let inside = false;
+      for (let i=0, j=ring.length-1; i<ring.length; j=i++){
+        const xi = ring[i][0], yi = ring[i][1];
+        const xj = ring[j][0], yj = ring[j][1];
+        const intersect =
+          ((yi > point[1]) !== (yj > point[1])) &&
+          (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi + 0.0) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function isPointInPolygon(pt, geom){
+      if (!geom) return false;
+      if (geom.type === 'Polygon'){
+        const [outer, ...holes] = geom.coordinates;
+        if (!pointInRing(pt, outer)) return false;
+        for (const h of holes){
+          if (pointInRing(pt, h)) return false;
+        }
+        return true;
+      }
+      if (geom.type === 'MultiPolygon'){
+        return geom.coordinates.some(poly => {
+          const [outer, ...holes] = poly;
+          if (!pointInRing(pt, outer)) return false;
+          for (const h of holes){
+            if (pointInRing(pt, h)) return false;
+          }
+          return true;
+        });
+      }
+      return false;
+    }
+
+    function spatialSelectWithPolygon(geom){
+      clearSelection();
+      if (!geom){
+        updateSelectionInfo();
+        return;
+      }
+      let count = 0;
+      accuracyIndex.forEach((rec, id) => {
+        const pt = [Number(rec.lon), Number(rec.lat)];
+        if (!isValidLatLon(rec.lat, rec.lon)) return;
+        if (isPointInPolygon(pt, geom)){
+          selectedIds.add(id);
+          if (rec.marker && rec.marker.setStyle){
+            rec.marker.setStyle({ radius: 9 });
+          }
+          count++;
+        }
+      });
+      updateSelectionInfo();
+      if (!count){
+        alert('Nessun punto legacy dentro il poligono.');
+      }
+    }
+
+    function computeLineLength(layer){
+      let latlngs = layer.getLatLngs();
+      if (Array.isArray(latlngs[0])) latlngs = latlngs.flat();
+      let total = 0;
+      for (let i = 1; i < latlngs.length; i++){
+        total += map.distance(latlngs[i-1], latlngs[i]);
+      }
+      return total;
+    }
+
+    function computePolygonArea(layer){
+      const rings = layer.getLatLngs();
+      const outer = Array.isArray(rings[0]) ? rings[0] : rings;
+      if (!outer || outer.length < 3) return 0;
+
+      const pts = outer.map(ll => map.options.crs.project(ll));
+      let area = 0;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++){
+        area += (pts[j].x * pts[i].y - pts[i].x * pts[j].y);
+      }
+      return Math.abs(area / 2);
+    }
+
+    map.on(L.Draw.Event.CREATED, function(e){
+      drawnItems.clearLayers();
+      drawnItems.addLayer(e.layer);
+
+      if (currentDrawMode === 'selection_polygon'){
+        const geom = e.layer.toGeoJSON().geometry;
+        spatialSelectWithPolygon(geom);
+
+      } else if (currentDrawMode === 'measure_line'){
+        const lenMeters = computeLineLength(e.layer);
+        showLengthResult(lenMeters);
+        e.layer.bindPopup('Lunghezza: <b>' + formatLength(lenMeters) + '</b>');
+        e.layer.openPopup();
+
+      } else if (currentDrawMode === 'measure_polygon'){
+        const areaM2 = computePolygonArea(e.layer);
+        showAreaResult(areaM2);
+        e.layer.bindPopup('Area: <b>' + formatArea(areaM2) + '</b>');
+        e.layer.openPopup();
+      }
+
+      currentDrawMode = null;
+    });
+
+    document.getElementById('btnSpatialSelect')?.addEventListener('click', ()=>{
+      currentDrawMode = 'selection_polygon';
+      const toolbar = drawControl._toolbars?.draw;
+      if (toolbar && toolbar._modes && toolbar._modes.polygon){
+        toolbar._modes.polygon.handler.enable();
+      } else {
+        alert('Usa lo strumento poligono nella barra di disegno sulla mappa.');
+      }
+    });
+
+    // =========================
+    //  DASHBOARD (classificazione points)
+    // =========================
+    const dashBtn    = document.getElementById('toggleDashboard');
+    const dashPanel  = document.getElementById('dashboardPanel');
+    const chartSvg   = document.getElementById('chart');
+    const legendDiv  = document.getElementById('chartLegend');
+    const dashTitle  = document.getElementById('dashTitle');
+
+    dashBtn.addEventListener('click', ()=>{
+      const show = dashPanel.style.display !== 'block';
+      dashPanel.style.display = show ? 'block' : 'none';
+      if (show) updateDashboard();
+      setTimeout(()=>{ if (show) updateDashboard(); }, 50);
+    });
+
+    window.addEventListener('resize', ()=>{
+      if (dashPanel.style.display === 'block') updateDashboard();
+    });
+
+    function getCounts(){
+      const counts = new Map();
+      cloudIndex.forEach(rec => {
+        const v = rec[currentClassField] ?? rec.land_cover ?? '';
+        const k = String(v).trim() || '(n/d)';
+        counts.set(k, (counts.get(k)||0) + 1);
+      });
+      return Array.from(counts.entries()).sort((a,b) => b[1] - a[1]);
+    }
+
+    function updateDashboard(){
+      const data = getCounts();
+      renderBars(data);
+      renderLegendChips(data);
+    }
+
+    function renderLegendChips(data){
+      legendDiv.innerHTML = data.map(([k])=>{
+        const color = assignColorForCategory(k);
+        return `<div class="chip"><span class="sw" style="background:${color}; border-color:${color}"></span>${escapeHtml(k)}</div>`;
+      }).join('');
+    }
+
+    function renderBars(data){
+      const wrap = document.getElementById('chartWrap');
+      const rect = wrap.getBoundingClientRect();
+      const width = rect.width || 400;
+      const height = Math.max(220, Math.min(420, 30 + data.length * 22));
+      const margin = { top: 18, right: 16, bottom: 40, left: 160 };
+      const innerW = Math.max(320, width - margin.left - margin.right);
+      const innerH = Math.max(80, height - margin.top - margin.bottom);
+
+      while (chartSvg.firstChild) chartSvg.removeChild(chartSvg.firstChild);
+      chartSvg.setAttribute('width', width);
+      chartSvg.setAttribute('height', height);
+
+      const maxVal = data.reduce((m,[,v]) => Math.max(m,v), 0) || 1;
+      const x = (v)=> v / maxVal * innerW;
+
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.setAttribute('transform', `translate(${margin.left}, ${margin.top})`);
+      chartSvg.appendChild(g);
+
+      data.forEach(([k,v], i)=>{
+        const y = i * (innerH / Math.max(1, data.length));
+        const barH = Math.max(12, (innerH / Math.max(1, data.length)) - 6);
+        const color = assignColorForCategory(k);
+        const w = x(v);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+        text.setAttribute('x', -8);
+        text.setAttribute('y', y + barH/2 + 4);
+        text.setAttribute('text-anchor','end');
+        text.setAttribute('font-size','12');
+        text.textContent = k;
+        g.appendChild(text);
+
+        const rectEl = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        rectEl.setAttribute('x', 0);
+        rectEl.setAttribute('y', y);
+        rectEl.setAttribute('width', w);
+        rectEl.setAttribute('height', barH);
+        rectEl.setAttribute('fill', color);
+        rectEl.setAttribute('opacity','0.95');
+        rectEl.setAttribute('rx','6');
+        rectEl.setAttribute('ry','6');
+        g.appendChild(rectEl);
+
+        const val = document.createElementNS('http://www.w3.org/2000/svg','text');
+        const inside = w > 28;
+        val.setAttribute('x', inside ? (w - 6) : (w + 6));
+        val.setAttribute('y', y + barH/2 + 4);
+        val.setAttribute('font-size','12');
+        val.setAttribute('text-anchor', inside ? 'end' : 'start');
+        val.setAttribute('fill', inside ? '#ffffff' : '#111111');
+        val.textContent = v;
+        g.appendChild(val);
+      });
+
+      [0, maxVal].forEach((t)=>{
+        const tx = margin.left + x(t);
+        const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+        label.setAttribute('x', tx);
+        label.setAttribute('y', height - 14);
+        label.setAttribute('text-anchor', t===0 ? 'start' : 'end');
+        label.setAttribute('font-size','11');
+        label.textContent = t;
+        chartSvg.appendChild(label);
+      });
+    }
+
+    // =========================
+    //  LABELS
+    // =========================
+    function updateCloudLabels(){
+      const show = map.getZoom() >= CLOUD_LABEL_ZOOM;
+      cloudLayer.eachLayer((lyr)=>{
+        const nm = lyr?.options?._labelName || '';
+        const hasTooltip = !!lyr.getTooltip && !!lyr.getTooltip();
+        if (show && nm && !hasTooltip){
+          lyr.bindTooltip(nm, {
+            permanent:true,
+            direction:'top',
+            offset:[0,-10],
+            className:'name-label'
+          });
+        } else if (!show && hasTooltip){
+          lyr.unbindTooltip();
+        }
+      });
+    }
+
+    map.on('zoomend', () => {
+      updateCloudLabels();
+      updateAccuracyLabels();
+      updateLegacyLabels();
+    });
+
+    // =========================
+    //  AVVIO
+    // =========================
+    loadSupabasePoints();
+    updateSelectionInfo();
+    dashTitle.textContent = `Distribuzione punti per ${currentClassField}`;
+
+    try {
+      console.assert(typeof L !== 'undefined', 'Leaflet presente');
+      console.assert(map instanceof L.Map, 'Mappa inizializzata');
+      console.assert(typeof supabase !== 'undefined', 'Supabase client presente');
+      console.assert(typeof loadSupabasePoints === 'function', 'Funzione loadSupabasePoints definita');
+    } catch (e) {
+      console.warn('Self-test warning:', e);
+    }
+
+    window.addEventListener('error', function(e){
+      console.warn('JS error:', e.message, e.filename + ':' + e.lineno);
+    });
+  </script>
+</body>
+</html>
