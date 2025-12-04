@@ -4,8 +4,13 @@
   <meta charset="utf-8" />
   <title>Profilo pedologico</title>
 
-  <!-- munsell.js (libreria ufficiale) -->
-  <script src="https://cdn.jsdelivr.net/npm/munsell@1.1.6/dist/munsell.min.js"></script>
+  <!-- munsell.js (caricato come modulo ESM e esposto su window.munsell) -->
+  <script type="module">
+    import * as munsellModule from 'https://cdn.jsdelivr.net/npm/munsell@1.1.6/+esm';
+    // Espone l'API come variabile globale "munsell" per lo script non-module sotto
+    window.munsell = munsellModule;
+  </script>
+
   <!-- html2canvas per export PNG -->
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
