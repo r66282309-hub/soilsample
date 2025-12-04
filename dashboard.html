@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Soil Dashboard</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <style>
+    :root {
+      --bg: #020617;
+      --bg-soft: #0b1120;
+      --bg-card: #020617;
+      --accent: #22c55e;
+      --accent-soft: rgba(34, 197, 94, 0.14);
+      --text: #e5e7eb;
+      --text-soft: #9ca3af;
+      --border-soft: #1f2937;
+      --radius-xl: 1.5rem;
+      --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.8);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      min-height: 100vh;
+      background: radial-gradient(circle at top, #111827 0, #020617 55%);
+      color: var(--text);
+      padding: 24px;
+    }
+
+    .dashboard-container {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    header.dashboard-header {
+      margin-bottom: 24px;
+    }
+
+    .dashboard-title {
+      font-size: 2rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dashboard-subtitle {
+      margin-top: 6px;
+      font-size: 0.95rem;
+      color: var(--text-soft);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.08);
+      color: var(--accent);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-left: 10px;
+    }
+
+    .dashboard-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* KPI cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px;
+    }
+
+    .kpi-card {
+      background: radial-gradient(circle at top left, #0f172a 0, #020617 60%);
+      border-radius: 18px;
+      padding: 14px 16px;
+      border: 1px solid rgba(15, 23, 42, 0.85);
+      box-shadow: 0 10px 40px rgba(15, 23, 42, 0.7);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .kpi-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-soft);
+    }
+
+    .kpi-value {
+      font-size: 1.6rem;
+      font-weight: 600;
+    }
+
+    .kpi-sub {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    /* Grid sections */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--bg-soft);
+      border-radius: 18px;
+      padding: 16px 16px 12px;
+      border: 1px solid var(--border-soft);
+      box-shadow: var(--shadow-soft);
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .card-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    canvas {
+      width: 100% !important;
+      height: 260px !important;
+    }
+
+    /* Map */
+    #map {
+      width: 100%;
+      height: 360px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border-soft);
+    }
+
+    /* Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    thead {
+      background: rgba(15, 23, 42, 0.9);
+    }
+
+    th,
+    td {
+      padding: 6px 8px;
+      text-align: left;
+      border-bottom: 1px solid rgba(31, 41, 55, 0.8);
+    }
+
+    th {
+      font-weight: 500;
+      color: var(--text-soft);
+      font-size: 0.75rem;
+    }
+
+    tbody tr:hover {
+      background: rgba(15, 23, 42, 0.9);
+    }
+
+    .badge-project {
+      display: inline-flex;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      background: rgba(34, 197, 94, 0.08);
+      color: var(--accent);
+    }
+
+    .muted {
+      color: var(--text-soft);
+      font-size: 0.78rem;
+    }
+
+    .tiny {
+      font-size: 0.7rem;
+    }
+
+    @media (max-width: 900px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+
+      canvas {
+        height: 220px !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-container">
+    <header class="dashboard-header">
+      <h1 class="dashboard-title">
+        Soil Dashboard
+        <span class="pill">Tabella points</span>
+      </h1>
+      
+    </header>
+
+    <main class="dashboard-layout">
+      <!-- KPI CARDS -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Punti totali</div>
+          <div id="kpi-total" class="kpi-value">–</div>
+          <div class="kpi-sub">Tutti i record</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Ultimi 7 giorni</div>
+          <div id="kpi-week" class="kpi-value">–</div>
+          <div class="kpi-sub">Nuovi punti</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Progetti</div>
+          <div id="kpi-projects" class="kpi-value">–</div>
+          <div class="kpi-sub">Numero di progetti distinti</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">Ultimo inserimento</div>
+          <div id="kpi-last" class="kpi-value tiny">–</div>
+          <div class="kpi-sub">Timestamp più recente</div>
+        </div>
+      </section>
+
+      <!-- CHARTS -->
+      <section class="grid-2">
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Punti per progetto</div>
+              </div>
+          </div>
+          <canvas id="chartByProject"></canvas>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Punti per land cover</div>
+             </div>
+          </div>
+          <canvas id="chartByLand"></canvas>
+        </section>
+      </section>
+
+      <!-- MAPPA -->
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Distribuzione spaziale</div>
+           </div>
+          <div class="muted tiny">
+            Clicca sui punti per vedere nome, progetto e land cover.
+          </div>
+        </div>
+        <div id="map"></div>
+      </section>
+
+      <!-- TABELLA ULTIMI PUNTI -->
+      <section class="grid-2">
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Ultimi punti inseriti</div>
+              <div class="card-subtitle">
+                Ordinati per <code>data di inserimento</code> (massimo 20 record)
+              </div>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nome punto</th>
+                  <th>Progetto</th>
+                  <th>Land cover</th>
+                  <th>Data</th>
+                </tr>
+              </thead>
+              <tbody id="table-latest">
+                <tr>
+                  <td colspan="5" class="muted">Nessun dato caricato.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Note e sviluppi futuri</div>
+            </div>
+          </div>
+          <p class="muted">
+             ...
+          </p>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <!-- LIBRERIE JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // 🔑 INSERISCI QUI I TUOI VALORI (gli stessi del WebGIS)
+    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+
+    const supabaseClient = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
+
+    let chartByProject = null;
+    let chartByLand = null;
+    let map = null;
+    let pointsLayer = null;
+
+    async function loadPoints() {
+      // Seleziona tutto e ordina per created_at decrescente
+      const { data, error } = await supabaseClient
+        .from('points')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Errore nel caricamento dei points:', error);
+        return [];
+      }
+
+      return data || [];
+    }
+
+    function updateKpis(points) {
+      const total = points.length;
+      document.getElementById('kpi-total').textContent = total;
+
+      // Ultimi 7 giorni
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const weekCount = points.filter((p) => {
+        if (!p.created_at) return false;
+        const d = new Date(p.created_at);
+        return d >= weekAgo;
+      }).length;
+
+      document.getElementById('kpi-week').textContent = weekCount;
+
+      // Progetti distinti (campo "progetto")
+      const projectSet = new Set(
+        points
+          .map((p) => p.progetto)
+          .filter((v) => v !== null && v !== undefined && v !== '')
+      );
+      document.getElementById('kpi-projects').textContent = projectSet.size;
+
+      // Ultimo inserimento
+      if (points.length > 0 && points[0].created_at) {
+        const last = new Date(points[0].created_at);
+        document.getElementById('kpi-last').textContent = last
+          .toISOString()
+          .slice(0, 19)
+          .replace('T', ' ');
+      } else {
+        document.getElementById('kpi-last').textContent = '–';
+      }
+    }
+
+    function groupCount(points, field) {
+      const counts = {};
+      for (const p of points) {
+        const key = p[field] || 'N.D.';
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return counts;
+    }
+
+    function updateCharts(points) {
+      const projectCounts = groupCount(points, 'progetto');   // campo reale
+      const landCounts = groupCount(points, 'land_cover');    // campo reale
+
+      const projLabels = Object.keys(projectCounts);
+      const projData = Object.values(projectCounts);
+
+      const landLabels = Object.keys(landCounts);
+      const landData = Object.values(landCounts);
+
+      const ctxProj = document.getElementById('chartByProject').getContext('2d');
+      const ctxLand = document.getElementById('chartByLand').getContext('2d');
+
+      if (chartByProject) chartByProject.destroy();
+      if (chartByLand) chartByLand.destroy();
+
+      chartByProject = new Chart(ctxProj, {
+        type: 'bar',
+        data: {
+          labels: projLabels,
+          datasets: [
+            {
+              label: 'Punti',
+              data: projData
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: { ticks: { color: '#9ca3af' } },
+            y: {
+              ticks: { color: '#9ca3af' },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+
+      chartByLand = new Chart(ctxLand, {
+        type: 'bar',
+        data: {
+          labels: landLabels,
+          datasets: [
+            {
+              label: 'Punti',
+              data: landData
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: { ticks: { color: '#9ca3af' } },
+            y: {
+              ticks: { color: '#9ca3af' },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    function initMap() {
+      if (map) return;
+
+      map = L.map('map', {
+        center: [40.0, 9.0], // centro generico sulla Sardegna
+        zoom: 7,
+        zoomControl: true
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      pointsLayer = L.layerGroup().addTo(map);
+    }
+
+    function updateMap(points) {
+      if (!map) initMap();
+      pointsLayer.clearLayers();
+
+      const coords = [];
+
+      for (const p of points) {
+        const lat = p.lat;
+        const lon = p.lon;
+        if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+
+        coords.push([lat, lon]);
+
+        const marker = L.circleMarker([lat, lon], {
+          radius: 4,
+          weight: 1,
+          fillOpacity: 0.8
+        });
+
+        const proj = p.progetto || 'N.D.';
+        const lc = p.land_cover || 'N.D.';
+        const id = p.id || '';
+        const name = p.name || '';
+
+        marker.bindPopup(
+          `<strong>${name || 'Punto'}</strong><br>` +
+          `<strong>ID:</strong> ${id}<br>` +
+          `<strong>Progetto:</strong> ${proj}<br>` +
+          `<strong>Land cover:</strong> ${lc}`
+        );
+        marker.addTo(pointsLayer);
+      }
+
+      if (coords.length > 0) {
+        const bounds = L.latLngBounds(coords);
+        map.fitBounds(bounds, { padding: [20, 20] });
+      }
+    }
+
+    function updateTable(points) {
+      const tbody = document.getElementById('table-latest');
+      tbody.innerHTML = '';
+
+      const latest = points.slice(0, 20);
+
+      if (latest.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        td.className = 'muted';
+        td.textContent = 'Nessun punto trovato nella tabella points.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      latest.forEach((p) => {
+        const tr = document.createElement('tr');
+
+        const tdId = document.createElement('td');
+        tdId.textContent = p.id ?? '';
+        tr.appendChild(tdId);
+
+        const tdName = document.createElement('td');
+        tdName.textContent = p.name || '';
+        tr.appendChild(tdName);
+
+        const tdProj = document.createElement('td');
+        const proj = p.progetto || 'N.D.';
+        const span = document.createElement('span');
+        span.className = 'badge-project';
+        span.textContent = proj;
+        tdProj.appendChild(span);
+        tr.appendChild(tdProj);
+
+        const tdLc = document.createElement('td');
+        tdLc.textContent = p.land_cover || 'N.D.';
+        tr.appendChild(tdLc);
+
+        const tdDate = document.createElement('td');
+        if (p.created_at) {
+          const d = new Date(p.created_at);
+          tdDate.textContent = d.toISOString().slice(0, 10);
+        } else {
+          tdDate.textContent = '–';
+        }
+        tr.appendChild(tdDate);
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function initDashboard() {
+      const points = await loadPoints();
+      updateKpis(points);
+      updateCharts(points);
+      initMap();
+      updateMap(points);
+      updateTable(points);
+    }
+
+    document.addEventListener('DOMContentLoaded', initDashboard);
+  </script>
+</body>
+</html>
