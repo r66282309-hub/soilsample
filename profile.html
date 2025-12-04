@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Profilo pedologico</title>
+
+  <!-- munsell.js (libreria ufficiale) -->
+  <script src="https://cdn.jsdelivr.net/npm/munsell@1.1.6/dist/munsell.min.js"></script>
+  <!-- html2canvas per export PNG -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+
+    h1 {
+      margin-bottom: 0.5rem;
+      font-size: 1.6rem;
+    }
+
+    .app-container {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 28px;
+      align-items: flex-start;
+    }
+
+    .panel {
+      background: #020617;
+      border-radius: 16px;
+      padding: 16px 18px;
+      box-shadow: 0 20px 45px rgba(15,23,42,0.7);
+      border: 1px solid rgba(148,163,184,0.25);
+    }
+
+    .panel.viz-panel {
+      max-width: 720px;
+    }
+
+    .panel h2 {
+      font-size: 1rem;
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+      color: #cbd5f5;
+    }
+
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 0.9rem;
+      box-sizing: border-box;
+    }
+
+    input[type="text"]:focus, input[type="number"]:focus {
+      outline: none;
+      border-color: #22c55e;
+      box-shadow: 0 0 0 1px rgba(34,197,94,0.6);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 0.6fr 0.6fr 1fr;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .buttons-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: #22c55e;
+      color: #022c22;
+      font-weight: 600;
+    }
+
+    .btn-secondary {
+      background: #020617;
+      color: #e5e7eb;
+      border: 1px solid rgba(148,163,184,0.4);
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.05);
+    }
+
+    .btn-secondary:hover {
+      background: #020818;
+    }
+
+    .hint {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    .horizons-table {
+      margin-top: 10px;
+      font-size: 0.8rem;
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .horizons-table th, .horizons-table td {
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+      text-align: left;
+    }
+
+    .horizons-table th {
+      color: #9ca3af;
+      font-weight: 500;
+      font-size: 0.75rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.6);
+      font-size: 0.7rem;
+      color: #cbd5f5;
+    }
+
+    .empty-message {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-top: 6px;
+    }
+
+    /* layout 2D + 3D */
+    .viz-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .viz-box {
+      background: #020617;
+      border-radius: 14px;
+      padding: 12px 12px 10px 12px;
+      border: 1px solid rgba(148,163,184,0.3);
+    }
+
+    .viz-title {
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+      color: #e5e7eb;
+    }
+
+    /* 2D */
+    .profile-wrapper {
+      display: inline-flex;
+      gap: 12px;
+      align-items: stretch;
+      width: auto;
+    }
+
+    #depth-scale {
+      width: 60px;
+      position: relative;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      border-right: 1px solid rgba(148,163,184,0.4);
+      padding-right: 4px;
+    }
+
+    #profile {
+      width: 180px;
+      height: 380px;
+      border: 1px solid rgba(148,163,184,0.8);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(to top, #292524, #1e293b);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .horizon {
+      width: 100%;
+      position: relative;
+      box-sizing: border-box;
+      border-top: 1px solid rgba(15,23,42,0.7);
+    }
+
+    .horizon-label {
+      position: absolute;
+      left: 6px;
+      top: 4px;
+      font-size: 0.75rem;
+      color: #f9fafb;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+      line-height: 1.2;
+    }
+
+    #profile-info {
+      margin-top: 10px;
+      font-size: 0.8rem;
+      color: #9ca3af;
+    }
+
+    .depth-tick {
+      position: absolute;
+      right: 0;
+      width: 6px;
+      height: 1px;
+      background: rgba(148,163,184,0.8);
+    }
+
+    .depth-label {
+      position: absolute;
+      right: 10px;
+      transform: translateY(-50%);
+      white-space: nowrap;
+    }
+
+    /* 3D */
+    #profile-3d {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+    }
+
+    @media (max-width: 900px) {
+      .app-container {
+        grid-template-columns: 1fr;
+      }
+      .viz-row {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Profilo pedologico (test)</h1>
+  <p class="hint">Inserisci gli orizzonti (dall’alto verso il basso) e genera il profilo grafico.</p>
+
+  <div class="app-container">
+    <!-- Pannello form orizzonti -->
+    <div class="panel">
+      <h2>Orizzonti</h2>
+
+      <div class="form-row">
+        <div>
+          <label for="h-name">Nome orizzonte</label>
+          <input id="h-name" type="text" placeholder="Ap, Bw, Bt…" />
+        </div>
+        <div>
+          <label for="h-thick">Spessore (cm)</label>
+          <input id="h-thick" type="number" min="1" step="1" placeholder="es. 25" />
+        </div>
+        <div>
+          <label for="h-munsell">Colore (Munsell)</label>
+          <input id="h-munsell" type="text" placeholder="10YR 3/3" />
+        </div>
+      </div>
+
+      <div style="margin-top:6px;">
+        <label for="h-texture">Tessitura (facoltativa)</label>
+        <input id="h-texture" type="text" placeholder="es. Franco sabbioso" />
+        <div class="hint">Formato Munsell: <span class="badge">10YR 3/3</span>, <span class="badge">7.5YR 4/4</span>, ecc.</div>
+      </div>
+
+      <div class="buttons-row">
+        <button class="btn-primary" id="btn-add">
+          ➕ Aggiungi orizzonte
+        </button>
+        <button class="btn-secondary" id="btn-clear">
+          🗑 Svuota elenco
+        </button>
+        <button class="btn-secondary" id="btn-demo">
+          🧪 Carica esempio
+        </button>
+      </div>
+
+      <table class="horizons-table" id="horizons-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Nome</th>
+            <th>Spessore (cm)</th>
+            <th>Munsell</th>
+            <th>Tessitura</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="horizons-body"></tbody>
+      </table>
+      <div id="empty-msg" class="empty-message">Nessun orizzonte inserito.</div>
+
+      <!-- Bottone genera -->
+      <div class="buttons-row" style="margin-top:10px;">
+        <button class="btn-primary" id="btn-draw">
+          🎨 Disegna profilo
+        </button>
+      </div>
+    </div>
+
+    <!-- Pannello visualizzazione -->
+    <div class="panel viz-panel">
+      <h2>Profilo e scala profondità</h2>
+
+      <div class="viz-row">
+        <!-- BOX 2D -->
+        <div class="viz-box" id="box-2d">
+          <div class="viz-title">Profilo 2D</div>
+          <div class="profile-wrapper" id="profile-wrapper">
+            <div id="depth-scale"></div>
+            <div id="profile"></div>
+          </div>
+          <div id="profile-info"></div>
+          <div class="buttons-row" style="margin-top:8px;">
+            <button class="btn-secondary" id="btn-export-2d">📷 Esporta 2D</button>
+          </div>
+        </div>
+
+        <!-- BOX 3D -->
+        <div class="viz-box" id="box-3d">
+          <div class="viz-title">Profilo 3D</div>
+          <div id="profile-3d"></div>
+          <div class="buttons-row" style="margin-top:8px;">
+            <button class="btn-secondary" id="btn-export-3d">📷 Esporta 3D</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let horizons = [];
+
+    const profileDiv     = document.getElementById("profile");
+    const depthScaleDiv  = document.getElementById("depth-scale");
+    const profileInfo    = document.getElementById("profile-info");
+    const hBody          = document.getElementById("horizons-body");
+    const emptyMsg       = document.getElementById("empty-msg");
+
+    function updateTable() {
+      hBody.innerHTML = "";
+      if (!horizons.length) {
+        emptyMsg.style.display = "block";
+      } else {
+        emptyMsg.style.display = "none";
+      }
+
+      horizons.forEach((h, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${h.name || "–"}</td>
+          <td>${h.thick}</td>
+          <td>${h.munsell || "–"}</td>
+          <td>${h.texture || "–"}</td>
+          <td><button class="btn-secondary" data-idx="${idx}" style="padding:2px 8px;font-size:0.7rem;">✕</button></td>
+        `;
+        hBody.appendChild(tr);
+      });
+
+      hBody.querySelectorAll("button[data-idx]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const i = parseInt(btn.getAttribute("data-idx"), 10);
+          horizons.splice(i, 1);
+          updateTable();
+        });
+      });
+    }
+
+    // --- Colori Munsell reali ---
+    function munsellRgbArray(code) {
+      if (!code) return [139, 107, 74];
+      try {
+        return munsell.munsellToRgb255(code);
+      } catch (e) {
+        console.warn("Errore Munsell:", e);
+        return [139, 107, 74];
+      }
+    }
+
+    function munsellToRgbCss(code) {
+      const [r, g, b] = munsellRgbArray(code);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function darken(rgb, factor) {
+      return rgb.map(v => Math.max(0, Math.round(v * factor)));
+    }
+
+    function lighten(rgb, factor) {
+      return rgb.map(v => Math.min(255, Math.round(v * factor)));
+    }
+
+    // --- 3D canvas ---
+    function renderProfile3D() {
+      const container = document.getElementById("profile-3d");
+      container.innerHTML = "";
+      if (!horizons.length) return;
+
+      const total = horizons.reduce((s, h) => s + h.thick, 0);
+
+      const canvas = document.createElement("canvas");
+      canvas.width  = 260;
+      canvas.height = 220;
+      container.appendChild(canvas);
+
+      const ctx = canvas.getContext("2d");
+
+      // sfondo
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const x0 = 70;        // angolo alto sinistro faccia frontale
+      const y0 = 40;
+      const frontW = 90;
+      const frontH = 140;
+      const dx = 40;        // spostamento prospettico
+      const dy = -25;
+
+      // scala profondità sul 3D
+      const step = total <= 80 ? 10 : 20;
+      ctx.font = "10px system-ui";
+      ctx.fillStyle = "#9ca3af";
+      ctx.strokeStyle = "#9ca3af";
+      ctx.lineWidth = 1;
+
+      for (let d = 0; d <= total; d += step) {
+        const y = y0 + (frontH * d / total);
+        ctx.beginPath();
+        ctx.moveTo(x0 - 6, y);
+        ctx.lineTo(x0 - 1, y);
+        ctx.stroke();
+        ctx.fillText(d + " cm", x0 - 40, y + 3);
+      }
+
+      // disegno orizzonti
+      let cumDepth = 0;
+      horizons.forEach((h, i) => {
+        const topDepth    = cumDepth;
+        const bottomDepth = cumDepth + h.thick;
+
+        const yTop    = y0 + frontH * (topDepth    / total);
+        const yBottom = y0 + frontH * (bottomDepth / total);
+
+        const baseRgb = munsellRgbArray(h.munsell);
+        const sideRgb = darken(baseRgb, 0.8);
+        const topRgb  = lighten(baseRgb, 1.05);
+
+        const frontColor = `rgb(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]})`;
+        const sideColor  = `rgb(${sideRgb[0]},${sideRgb[1]},${sideRgb[2]})`;
+        const topColor   = `rgb(${topRgb[0]},${topRgb[1]},${topRgb[2]})`;
+
+        // lato destro
+        ctx.beginPath();
+        ctx.moveTo(x0 + frontW,      yTop);
+        ctx.lineTo(x0 + frontW + dx, yTop + dy);
+        ctx.lineTo(x0 + frontW + dx, yBottom + dy);
+        ctx.lineTo(x0 + frontW,      yBottom);
+        ctx.closePath();
+        ctx.fillStyle = sideColor;
+        ctx.fill();
+
+        // faccia frontale
+        ctx.beginPath();
+        ctx.rect(x0, yTop, frontW, yBottom - yTop);
+        ctx.fillStyle = frontColor;
+        ctx.fill();
+
+        // faccia superiore solo per il primo orizzonte (superficie)
+        if (i === 0) {
+          ctx.beginPath();
+          ctx.moveTo(x0,          yTop);
+          ctx.lineTo(x0 + frontW, yTop);
+          ctx.lineTo(x0 + frontW + dx, yTop + dy);
+          ctx.lineTo(x0 + dx,     yTop + dy);
+          ctx.closePath();
+          ctx.fillStyle = topColor;
+          ctx.fill();
+        }
+
+        cumDepth += h.thick;
+      });
+
+      // contorni del parallelepipedo
+      ctx.strokeStyle = "rgba(15,23,42,0.9)";
+      ctx.lineWidth = 1.2;
+
+      // fronte
+      ctx.beginPath();
+      ctx.moveTo(x0,          y0);
+      ctx.lineTo(x0 + frontW, y0);
+      ctx.lineTo(x0 + frontW, y0 + frontH);
+      ctx.lineTo(x0,          y0 + frontH);
+      ctx.closePath();
+      ctx.stroke();
+
+      // top
+      ctx.beginPath();
+      ctx.moveTo(x0,              y0);
+      ctx.lineTo(x0 + dx,         y0 + dy);
+      ctx.lineTo(x0 + frontW + dx, y0 + dy);
+      ctx.lineTo(x0 + frontW,     y0);
+      ctx.stroke();
+
+      // lato destro
+      ctx.beginPath();
+      ctx.moveTo(x0 + frontW,      y0);
+      ctx.lineTo(x0 + frontW + dx, y0 + dy);
+      ctx.lineTo(x0 + frontW + dx, y0 + frontH + dy);
+      ctx.lineTo(x0 + frontW,      y0 + frontH);
+      ctx.stroke();
+    }
+
+    function renderProfile() {
+      profileDiv.innerHTML = "";
+      depthScaleDiv.innerHTML = "";
+      profileInfo.innerHTML = "";
+
+      if (!horizons.length) {
+        profileInfo.textContent = "Inserisci almeno un orizzonte e premi “Disegna profilo”.";
+        renderProfile3D();
+        return;
+      }
+
+      const total = horizons.reduce((s, h) => s + h.thick, 0);
+      const profHeight = profileDiv.clientHeight || 380;
+
+      horizons.forEach(h => {
+        const div = document.createElement("div");
+        div.className = "horizon";
+        const heightPx = (h.thick / total) * profHeight;
+        div.style.height = `${heightPx}px`;
+        div.style.background = munsellToRgbCss(h.munsell);
+
+        const label = document.createElement("div");
+        label.className = "horizon-label";
+        label.innerHTML = `
+          <strong>${h.name || "–"}</strong> · ${h.thick} cm<br>
+          ${h.texture ? h.texture + "<br>" : ""}
+          <span style="opacity:0.8;">${h.munsell || ""}</span>
+        `;
+        div.appendChild(label);
+        profileDiv.appendChild(div);
+      });
+
+      const totalDepth = total;
+      const step = totalDepth <= 80 ? 10 : 20;
+      depthScaleDiv.style.position = "relative";
+      depthScaleDiv.style.height = `${profHeight}px`;
+
+      for (let d = 0; d <= totalDepth; d += step) {
+        const y = (d / totalDepth) * profHeight;
+        const tick = document.createElement("div");
+        tick.className = "depth-tick";
+        tick.style.top = `${y}px`;
+        depthScaleDiv.appendChild(tick);
+
+        const lab = document.createElement("div");
+        lab.className = "depth-label";
+        lab.style.top = `${y}px`;
+        lab.textContent = d + " cm";
+        depthScaleDiv.appendChild(lab);
+      }
+
+      profileInfo.innerHTML =
+        `Profondità totale: <strong>${totalDepth} cm</strong> · Orizzonti: <strong>${horizons.length}</strong>`;
+
+      renderProfile3D();
+    }
+
+    // --- Eventi form ---
+    document.getElementById("btn-add").addEventListener("click", () => {
+      const name       = document.getElementById("h-name").value.trim();
+      const thickVal   = document.getElementById("h-thick").value;
+      const munsellCod = document.getElementById("h-munsell").value.trim();
+      const texture    = document.getElementById("h-texture").value.trim();
+
+      const thick = parseInt(thickVal, 10);
+      if (!thick || thick <= 0) {
+        alert("Inserisci uno spessore valido (cm).");
+        return;
+      }
+
+      horizons.push({
+        name: name || "",
+        thick,
+        munsell: munsellCod || "",
+        texture: texture || ""
+      });
+
+      document.getElementById("h-name").value = "";
+      document.getElementById("h-thick").value = "";
+      document.getElementById("h-munsell").value = "";
+      document.getElementById("h-texture").value = "";
+
+      updateTable();
+    });
+
+    document.getElementById("btn-clear").addEventListener("click", () => {
+      if (!horizons.length) return;
+      if (confirm("Svuotare tutti gli orizzonti inseriti?")) {
+        horizons = [];
+        updateTable();
+        renderProfile();
+      }
+    });
+
+    document.getElementById("btn-demo").addEventListener("click", () => {
+      horizons = [
+        { name: "1", thick: 25, munsell: "7.5YR 4/4", texture: "Franco Sabbioso" },
+        { name: "2", thick: 40, munsell: "10YR 3/3",  texture: "Franco Argilloso" },
+        { name: "3", thick: 50, munsell: "7.5YR 4/6", texture: "Sabbioso" }
+      ];
+      updateTable();
+      renderProfile();
+    });
+
+    document.getElementById("btn-draw").addEventListener("click", renderProfile);
+
+    // export 2D (senza bottoni)
+    document.getElementById("btn-export-2d").addEventListener("click", () => {
+      const box2d = document.getElementById("box-2d");
+      html2canvas(box2d, {
+        backgroundColor: null,
+        scale: 2,
+        onclone: docClone => {
+          const clone = docClone.getElementById("box-2d");
+          if (clone) {
+            // nasconde tutti i bottoni nel clone
+            clone.querySelectorAll("button").forEach(b => b.style.display = "none");
+            clone.style.paddingTop = "16px";
+            clone.style.paddingBottom = "16px";
+          }
+        }
+      }).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "profilo_2d.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+    });
+
+    // export 3D (senza bottoni)
+    document.getElementById("btn-export-3d").addEventListener("click", () => {
+      const box3d = document.getElementById("box-3d");
+      html2canvas(box3d, {
+        backgroundColor: null,
+        scale: 2,
+        onclone: docClone => {
+          const clone = docClone.getElementById("box-3d");
+          if (clone) {
+            clone.querySelectorAll("button").forEach(b => b.style.display = "none");
+            clone.style.paddingTop = "16px";
+            clone.style.paddingBottom = "16px";
+          }
+        }
+      }).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "profilo_3d.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+    });
+
+    // init
+    updateTable();
+  </script>
+</body>
+</html>
