@@ -4,10 +4,9 @@
   <meta charset="utf-8" />
   <title>Profilo pedologico</title>
 
-  <!-- munsell.js (caricato come modulo ESM e esposto su window.munsell) -->
+  <!-- munsell.js (caricato come modulo ESM ed esposto su window.munsell) -->
   <script type="module">
     import * as munsellModule from 'https://cdn.jsdelivr.net/npm/munsell@1.1.6/+esm';
-    // Espone l'API come variabile globale "munsell" per lo script non-module sotto
     window.munsell = munsellModule;
   </script>
 
@@ -154,6 +153,13 @@
       border: 1px solid rgba(148,163,184,0.6);
       font-size: 0.7rem;
       color: #cbd5f5;
+    }
+
+    .badge-error {
+      border-color: #f97373;
+      background: rgba(248,113,113,0.15);
+      color: #fecaca;
+      margin-top: 2px;
     }
 
     .empty-message {
@@ -403,19 +409,24 @@
       });
     }
 
-    // --- Colori Munsell reali ---
+    // --- Colori Munsell reali + flag errore ---
     function munsellRgbArray(code) {
-      if (!code) return [139, 107, 74];
+      const fallback = [139, 107, 74];
+      if (!code) {
+        return { rgb: fallback, valid: false };
+      }
       try {
-        return munsell.munsellToRgb255(code);
+        const arr = window.munsell.munsellToRgb255(code);
+        return { rgb: arr, valid: true };
       } catch (e) {
         console.warn("Errore Munsell:", e);
-        return [139, 107, 74];
+        return { rgb: fallback, valid: false };
       }
     }
 
     function munsellToRgbCss(code) {
-      const [r, g, b] = munsellRgbArray(code);
+      const { rgb } = munsellRgbArray(code);
+      const [r, g, b] = rgb;
       return `rgb(${r}, ${g}, ${b})`;
     }
 
@@ -478,7 +489,7 @@
         const yTop    = y0 + frontH * (topDepth    / total);
         const yBottom = y0 + frontH * (bottomDepth / total);
 
-        const baseRgb = munsellRgbArray(h.munsell);
+        const { rgb: baseRgb } = munsellRgbArray(h.munsell);
         const sideRgb = darken(baseRgb, 0.8);
         const topRgb  = lighten(baseRgb, 1.05);
 
@@ -566,7 +577,10 @@
         div.className = "horizon";
         const heightPx = (h.thick / total) * profHeight;
         div.style.height = `${heightPx}px`;
-        div.style.background = munsellToRgbCss(h.munsell);
+
+        const { rgb, valid } = munsellRgbArray(h.munsell);
+        const [r, g, b] = rgb;
+        div.style.background = `rgb(${r}, ${g}, ${b})`;
 
         const label = document.createElement("div");
         label.className = "horizon-label";
@@ -574,6 +588,7 @@
           <strong>${h.name || "–"}</strong> · ${h.thick} cm<br>
           ${h.texture ? h.texture + "<br>" : ""}
           <span style="opacity:0.8;">${h.munsell || ""}</span>
+          ${h.munsell && !valid ? '<br><span class="badge badge-error">Codice Munsell non valido</span>' : ""}
         `;
         div.appendChild(label);
         profileDiv.appendChild(div);
