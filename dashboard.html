@@ -231,7 +231,6 @@
         Soil Dashboard
         <span class="pill">Dashboard</span>
       </h1>
-      
     </header>
 
     <main class="dashboard-layout">
@@ -268,7 +267,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Punti per progetto</div>
-              </div>
+            </div>
           </div>
           <canvas id="chartByProject"></canvas>
         </section>
@@ -277,7 +276,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">Punti per land cover</div>
-             </div>
+            </div>
           </div>
           <canvas id="chartByLand"></canvas>
         </section>
@@ -288,9 +287,9 @@
         <div class="card-header">
           <div>
             <div class="card-title">Distribuzione spaziale</div>
-           </div>
+          </div>
           <div class="muted tiny">
-            Clicca sui punti per vedere nome, progetto e land cover.
+            Colore = land cover (come nel grafico). Clicca sui punti per vedere nome, progetto e land cover.
           </div>
         </div>
         <div id="map"></div>
@@ -311,7 +310,6 @@
             <table>
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>Nome punto</th>
                   <th>Progetto</th>
                   <th>Land cover</th>
@@ -320,7 +318,7 @@
               </thead>
               <tbody id="table-latest">
                 <tr>
-                  <td colspan="5" class="muted">Nessun dato caricato.</td>
+                  <td colspan="4" class="muted">Nessun dato caricato.</td>
                 </tr>
               </tbody>
             </table>
@@ -361,8 +359,28 @@
     let map = null;
     let pointsLayer = null;
 
+    // 🎨 PALETTE COLORI E MAPPA LAND COVER -> COLORE
+    const PALETTE = [
+      '#22c55e', // verde
+      '#3b82f6', // blu
+      '#eab308', // giallo
+      '#f97316', // arancio
+      '#f43f5e', // rosso
+      '#8b5cf6', // viola
+      '#14b8a6', // teal
+      '#ec4899', // rosa
+      '#10b981', // verde acqua
+      '#6366f1'  // indaco
+    ];
+
+    function getPaletteColor(index) {
+      return PALETTE[index % PALETTE.length];
+    }
+
+    // Mappa globale per avere stessi colori tra grafico "land cover" e mappa
+    let landCoverColorMap = {};
+
     async function loadPoints() {
-      // Seleziona tutto e ordina per created_at decrescente
       const { data, error } = await supabaseClient
         .from('points')
         .select('*')
@@ -422,8 +440,8 @@
     }
 
     function updateCharts(points) {
-      const projectCounts = groupCount(points, 'progetto');   // campo reale
-      const landCounts = groupCount(points, 'land_cover');    // campo reale
+      const projectCounts = groupCount(points, 'progetto');
+      const landCounts = groupCount(points, 'land_cover');
 
       const projLabels = Object.keys(projectCounts);
       const projData = Object.values(projectCounts);
@@ -437,6 +455,9 @@
       if (chartByProject) chartByProject.destroy();
       if (chartByLand) chartByLand.destroy();
 
+      // 🔹 Grafico Punti per progetto – colori diversi per barra
+      const projColors = projLabels.map((_, idx) => getPaletteColor(idx));
+
       chartByProject = new Chart(ctxProj, {
         type: 'bar',
         data: {
@@ -444,7 +465,10 @@
           datasets: [
             {
               label: 'Punti',
-              data: projData
+              data: projData,
+              backgroundColor: projColors,
+              borderColor: projColors,
+              borderWidth: 1
             }
           ]
         },
@@ -463,6 +487,15 @@
         }
       });
 
+      // 🔹 Grafico Punti per land cover – colori diversi per barra
+      //     e mappa globale landCoverColorMap per usare gli stessi colori sulla mappa
+      landCoverColorMap = {};
+      const landColors = landLabels.map((label, idx) => {
+        const c = getPaletteColor(idx);
+        landCoverColorMap[label] = c;
+        return c;
+      });
+
       chartByLand = new Chart(ctxLand, {
         type: 'bar',
         data: {
@@ -470,7 +503,10 @@
           datasets: [
             {
               label: 'Punti',
-              data: landData
+              data: landData,
+              backgroundColor: landColors,
+              borderColor: landColors,
+              borderWidth: 1
             }
           ]
         },
@@ -494,7 +530,7 @@
       if (map) return;
 
       map = L.map('map', {
-        center: [40.0, 9.0], // centro generico sulla Sardegna
+        center: [40.0, 9.0],
         zoom: 7,
         zoomControl: true
       });
@@ -520,20 +556,22 @@
 
         coords.push([lat, lon]);
 
+        const lc = p.land_cover || 'N.D.';
+        const color = landCoverColorMap[lc] || '#6366f1';
+
         const marker = L.circleMarker([lat, lon], {
           radius: 4,
           weight: 1,
-          fillOpacity: 0.8
+          color: color,
+          fillColor: color,
+          fillOpacity: 0.85
         });
 
         const proj = p.progetto || 'N.D.';
-        const lc = p.land_cover || 'N.D.';
-        const id = p.id || '';
         const name = p.name || '';
 
         marker.bindPopup(
           `<strong>${name || 'Punto'}</strong><br>` +
-          `<strong>ID:</strong> ${id}<br>` +
           `<strong>Progetto:</strong> ${proj}<br>` +
           `<strong>Land cover:</strong> ${lc}`
         );
@@ -555,7 +593,7 @@
       if (latest.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 5;
+        td.colSpan = 4;
         td.className = 'muted';
         td.textContent = 'Nessun punto trovato nella tabella points.';
         tr.appendChild(td);
@@ -565,10 +603,6 @@
 
       latest.forEach((p) => {
         const tr = document.createElement('tr');
-
-        const tdId = document.createElement('td');
-        tdId.textContent = p.id ?? '';
-        tr.appendChild(tdId);
 
         const tdName = document.createElement('td');
         tdName.textContent = p.name || '';
@@ -612,4 +646,3 @@
   </script>
 </body>
 </html>
-
