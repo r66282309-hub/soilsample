@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>WebGIS Leaflet + Supabase (Editing)</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet Geoman (editing) -->
+  <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css"/>
+  <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
+
+  <!-- Leaflet EasyPrint (export) -->
+  <script src="https://unpkg.com/leaflet-easyprint@2.1.9/dist/bundle.js"></script>
+
+  <!-- Simple icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root{
+      --bg: #0b1220;
+      --panel: rgba(255,255,255,0.08);
+      --panel2: rgba(255,255,255,0.12);
+      --border: rgba(255,255,255,0.14);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.68);
+      --accent: #60a5fa;
+      --accent2:#f59e0b;
+      --ok:#22c55e;
+      --bad:#ef4444;
+      --shadow: 0 20px 50px rgba(0,0,0,0.45);
+      --radius: 18px;
+    }
+    *{ box-sizing:border-box; }
+    html, body{ height:100%; margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background: radial-gradient(1200px 700px at 12% 10%, #172554 0%, #0b1220 45%, #050913 100%); color:var(--text); }
+    #app{ height:100%; display:flex; gap:14px; padding:14px; }
+    #map{ flex:1; border-radius:var(--radius); overflow:hidden; box-shadow: var(--shadow); position:relative; }
+
+    .panel{
+      width: 420px; min-width: 360px; max-width: 480px;
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--panel) 0%, rgba(255,255,255,0.06) 100%);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      display:flex; flex-direction:column;
+    }
+    .panel header{
+      padding:16px 16px 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between;
+      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02));
+    }
+    .brand{
+      display:flex; gap:10px; align-items:center;
+    }
+    .logo{
+      width:36px; height:36px; border-radius:12px;
+      background: radial-gradient(circle at 30% 30%, #93c5fd 0%, #2563eb 55%, #111827 100%);
+      box-shadow: 0 10px 20px rgba(37,99,235,0.35);
+    }
+    .brand h1{ font-size:14px; margin:0; font-weight:700; letter-spacing:0.2px; }
+    .brand p{ margin:0; font-size:12px; color:var(--muted); }
+
+    .tabs{ display:flex; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); }
+    .tab{
+      flex:1;
+      padding:10px 10px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      font-weight:600;
+      cursor:pointer;
+      display:flex; align-items:center; justify-content:center; gap:8px;
+      user-select:none;
+    }
+    .tab.active{
+      background: rgba(96,165,250,0.18);
+      color: var(--text);
+      border-color: rgba(96,165,250,0.35);
+    }
+
+    .content{ padding:12px; overflow:auto; flex:1; }
+    .card{
+      border:1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding:12px;
+      margin-bottom:10px;
+    }
+    .row{ display:flex; gap:10px; }
+    .row > *{ flex:1; }
+
+    label{ font-size:12px; color: var(--muted); display:block; margin-bottom:6px; }
+    select, input, textarea{
+      width:100%;
+      padding:10px 12px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,0.14);
+      background: rgba(10,16,30,0.65);
+      color: var(--text);
+      outline:none;
+    }
+    textarea{ min-height:72px; resize:vertical; }
+    .btn{
+  padding:10px 12px;
+  border-radius: 12px;
+  border:1px solid rgba(255,255,255,0.35);
+  background:#ffffff;              /* <-- bianco pieno */
+  color:#0b1220;                   /* testo scuro */
+  cursor:pointer;
+  font-weight:700;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+}
+.btn:hover{
+  background:#f3f4f6;              /* bianco/grigio chiarissimo al passaggio */
+}
+
+/* varianti mantengono il bordo colorato ma restano bianche */
+.btn.primary{
+  background:#ffffff;
+  border-color: rgba(96,165,250,0.8);
+}
+.btn.danger{
+  background:#ffffff;
+  border-color: rgba(239,68,68,0.8);
+}
+.btn.ok{
+  background:#ffffff;
+  border-color: rgba(34,197,94,0.8);
+}
+
+.pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:999px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      font-size:12px; font-weight:600;
+    }
+    .status{ margin-top:10px; font-size:12px; color:var(--muted); }
+    .status b{ color: var(--text); }
+
+    table{ width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:14px; border:1px solid var(--border); }
+    thead th{
+      font-size:12px; text-align:left; padding:10px; color:var(--muted);
+      background: rgba(255,255,255,0.06);
+      border-bottom:1px solid var(--border);
+    }
+    tbody td{
+      font-size:12px; padding:10px; border-bottom:1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.86);
+      vertical-align:top;
+    }
+    tbody tr:hover td{ background: rgba(96,165,250,0.08); cursor:pointer; }
+    .pager{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top:10px; }
+    .small{ font-size:12px; color: var(--muted); }
+
+    .leaflet-control-layers, .leaflet-bar a{
+      border-radius:12px !important;
+      border:1px solid rgba(255,255,255,0.18) !important;
+      background: rgba(10,16,30,0.65) !important;
+      color: var(--text) !important;
+      backdrop-filter: blur(10px);
+    }
+    .leaflet-control-layers label{ color: var(--text); }
+  </style>
+</head>
+
+<body>
+<div id="app">
+  <div class="panel">
+    <header>
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>WebGIS Editor</h1>
+          <p>Leaflet + Supabase + PostGIS</p>
+        </div>
+      </div>
+      <span class="pill"><i class="fa-solid fa-globe"></i><span id="pillLayer">parcels</span></span>
+    </header>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="layers"><i class="fa-solid fa-layer-group"></i>Layer</div>
+      <div class="tab" data-tab="attrs"><i class="fa-solid fa-table"></i>Tabella</div>
+      <div class="tab" data-tab="tools"><i class="fa-solid fa-wand-magic-sparkles"></i>Tools</div>
+    </div>
+
+    <div class="content" id="tab-layers">
+      <div class="card">
+        <label>Layer attivo (editing + tabella)</label>
+        <select id="layerSelect"></select>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="btnReload"><i class="fa-solid fa-rotate"></i>Ricarica bbox</button>
+          <button class="btn" id="btnFit"><i class="fa-solid fa-expand"></i>Zoom layer</button>
+        </div>
+        <div class="status" id="status1">Stato: <b>pronto</b></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+          <div>
+            <div style="font-weight:800;">Editing</div>
+            <div class="small">Disegna/modifica e salva su Supabase</div>
+          </div>
+          <span class="pill"><i class="fa-solid fa-pen-ruler"></i><span>Geoman</span></span>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn ok" id="btnNewAttrs"><i class="fa-solid fa-pen-to-square"></i>Attributi</button>
+          <button class="btn danger" id="btnDeleteSel"><i class="fa-solid fa-trash"></i>Elimina selezione</button>
+        </div>
+        <div class="small" style="margin-top:10px; color:var(--muted);">
+          Suggerimento: clic su feature = seleziona + popup attributi.
+        </div>
+      </div>
+
+<div class="card">
+      <div style="font-weight:800; margin-bottom:8px;">WMS</div>
+      <div class="small">Incolla l’URL del servizio WMS (endpoint) e il nome del layer.</div>
+
+      <div style="margin-top:10px;">
+        <label>URL WMS</label>
+        <input id="wmsUrl" placeholder="es. https://server/geoserver/wms"/>
+      </div>
+
+      <div style="margin-top:10px;">
+        <label>Nome layer (parametro <code>layers=</code>)</label>
+        <input id="wmsLayerName" placeholder="es. topp:states"/>
+      </div>
+
+      <div style="margin-top:10px;">
+        <label>Nome visualizzato in legenda</label>
+        <input id="wmsTitle" placeholder="es. Confini regionali"/>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <button class="btn" id="btnAddWms">
+          <i class="fa-solid fa-cloud"></i>Aggiungi WMS
+        </button>
+        <button class="btn" id="btnToggleWms">
+          <i class="fa-solid fa-eye"></i>On/Off
+        </button>
+      </div>
+    </div> <!-- fine card WMS -->
+
+    <!-- >>> QUI chiudiamo il contenitore della TAB "layers" <<< -->
+    </div> <!-- chiude .content id="tab-layers" -->
+
+    <div class="content" id="tab-attrs" style="display:none;">
+      <div class="card">
+        <label>Ricerca (name contains)</label>
+        <input id="qSearch" placeholder="es. vigneto, strada, pozzo..."/>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="btnQuery"><i class="fa-solid fa-magnifying-glass"></i>Carica</button>
+          <button class="btn" id="btnClearQ"><i class="fa-solid fa-xmark"></i>Reset</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:10px;">Tabella attributi</div>
+        <div style="overflow:auto;">
+          <table id="attrTable">
+            <thead><tr id="attrHead"></tr></thead>
+            <tbody id="attrBody"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button class="btn" id="btnPrev"><i class="fa-solid fa-arrow-left"></i>Prev</button>
+          <div class="small" id="pageInfo">0–0 / 0</div>
+          <button class="btn" id="btnNext">Next<i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content" id="tab-tools" style="display:none;">
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:8px;">Misure + Export</div>
+        <div class="row">
+          <button class="btn" id="btnPrint"><i class="fa-solid fa-print"></i>Stampa/PDF</button>
+          <button class="btn" id="btnMeasureHint"><i class="fa-solid fa-ruler"></i>Misure</button>
+        </div>
+        <div class="small" style="margin-top:10px;">
+          Misure: usa gli strumenti Geoman (Line/Polygon) oppure il righello (vedi hint).
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:8px;">Field calculator (SQL safe)</div>
+        <div class="small">Aggiorna un campo con un’espressione SQL (controllata via RPC).</div>
+        <div style="margin-top:10px;">
+          <label>Campo target</label>
+          <select id="fcField"></select>
+        </div>
+        <div style="margin-top:10px;">
+          <label>Espressione SQL (es.: <code>coalesce(name,'') || ' (ok)'</code>)</label>
+          <input id="fcExpr" placeholder="case when landuse='Vigneto' then 'VIG' else landuse end"/>
+        </div>
+        <div style="margin-top:10px;">
+          <label>WHERE (opzionale, default true)</label>
+          <input id="fcWhere" placeholder="landuse is not null"/>
+        </div>
+        <button class="btn primary" style="margin-top:10px;" id="btnRunFC">
+          <i class="fa-solid fa-bolt"></i>Esegui
+        </button>
+        <div class="status" id="statusFC">—</div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:8px;">Geoprocessing (parcels)</div>
+        <div class="small">Buffer su feature selezionate (salva in <code>parcels_buffer</code>).</div>
+        <div style="margin-top:10px;">
+          <label>Distanza (metri)</label>
+          <input id="bufDist" type="number" value="10"/>
+        </div>
+        <button class="btn primary" style="margin-top:10px;" id="btnBuffer">
+          <i class="fa-solid fa-circle-nodes"></i>Buffer selezione</button>
+        <div class="status" id="statusGP">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://vfswhrixncshhxpuivjl.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZmc3docml4bmNzaGh4cHVpdmpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3OTA1MzUsImV4cCI6MjA4MTM2NjUzNX0.TDXv6Hbwfu5UnYG6dMEjbSH_M9wpR55I2KAgkHfeRtM";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const state = {
+  layerKey: "parcels",
+  layersMeta: {},
+  drawnLayer: null,
+  selected: new Map(),
+  wmsLayer: null,
+  table: { offset: 0, limit: 25, total: 0, rows: [] }
+};
+
+const status1 = (msg) => document.getElementById("status1").innerHTML = "Stato: <b>" + msg + "</b>";
+const statusFC = (msg) => document.getElementById("statusFC").innerHTML = msg;
+const statusGP = (msg) => document.getElementById("statusGP").innerHTML = msg;
+
+function $(id){ return document.getElementById(id); }
+
+/* MAP */
+const map = L.map('map', { zoomControl: true }).setView([40.73, 8.56], 12);
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, attribution: "&copy; OSM" }).addTo(map);
+const baseMaps = { "OSM": osm };
+const overlayMaps = {};
+const layerControl = L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+
+map.pm.addControls({
+  position: 'topleft',
+  drawCircle: false,
+  drawCircleMarker: false,
+  drawRectangle: false,
+  drawMarker: true,
+  drawPolyline: true,
+  drawPolygon: true,
+  editMode: true,
+  dragMode: true,
+  cutPolygon: true,
+  removalMode: true,
+  rotateMode: false
+});
+
+const printer = L.easyPrint({
+  title: 'Esporta stampa',
+  position: 'topleft',
+  sizeModes: ['A4Portrait', 'A4Landscape', 'Current']
+}).addTo(map);
+
+/* TABS */
+document.querySelectorAll(".tab").forEach(el => {
+  el.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    el.classList.add("active");
+    const tab = el.dataset.tab;
+    ["layers","attrs","tools"].forEach(k => $("tab-"+k).style.display = (k===tab ? "block":"none"));
+  });
+});
+
+/* LAYERS META (usa view public.layers) */
+async function loadLayersMeta(){
+  const { data, error } = await sb.from("layers").select("*").order("layer_key");
+  if (error) throw error;
+  state.layersMeta = Object.fromEntries(data.map(r => [r.layer_key, r]));
+  const sel = $("layerSelect");
+  sel.innerHTML = "";
+  data.forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r.layer_key;
+    opt.textContent = r.title + " (" + r.layer_key + ")";
+    sel.appendChild(opt);
+  });
+  sel.value = state.layerKey;
+  $("pillLayer").textContent = state.layerKey;
+  refreshFieldCalcFields();
+}
+
+function refreshFieldCalcFields(){
+  const f = $("fcField");
+  f.innerHTML = "";
+  const lk = state.layerKey;
+  const fields = lk==="parcels" ? ["name","landuse","notes"]
+               : lk==="roads"   ? ["name","road_type","notes"]
+               : ["name","category","notes"];
+  fields.forEach(x => {
+    const opt = document.createElement("option");
+    opt.value = x; opt.textContent = x;
+    f.appendChild(opt);
+  });
+}
+
+/* STYLE */
+function styleForFeature(layerKey, feature){
+  const meta = state.layersMeta[layerKey];
+  const s = (meta && meta.style) ? meta.style : {};
+  if (layerKey === "parcels"){
+    return {
+      color: s.stroke || "#2563eb",
+      weight: s.weight ?? 2,
+      fillColor: s.fill || "#60a5fa",
+      fillOpacity: s.fillOpacity ?? 0.25
+    };
+  }
+  if (layerKey === "roads"){
+    return { color: s.color || "#111827", weight: s.weight ?? 3 };
+  }
+  return { color: (s.color || "#111827"), weight: s.weight ?? 2 };
+}
+
+function pointToLayer(layerKey, feature, latlng){
+  const meta = state.layersMeta[layerKey];
+  const s = (meta && meta.style) ? meta.style : {};
+  return L.circleMarker(latlng, {
+    radius: s.radius ?? 7,
+    fillColor: s.fillColor ?? "#f59e0b",
+    color: s.color ?? "#111827",
+    weight: s.weight ?? 2,
+    fillOpacity: s.fillOpacity ?? 0.9
+  });
+}
+
+/* BBOX LOAD (usa public.rpc_geojson_bbox) */
+async function loadBbox(){
+  status1("carico…");
+  const b = map.getBounds();
+  const args = {
+    p_layer: state.layerKey,
+    p_xmin: b.getWest(),
+    p_ymin: b.getSouth(),
+    p_xmax: b.getEast(),
+    p_ymax: b.getNorth(),
+    p_limit: 5000
+  };
+
+  const { data, error } = await sb.rpc("rpc_geojson_bbox", args);
+  if (error) {
+    status1("errore: " + error.message);
+    return;
+  }
+
+  if (state.drawnLayer){
+    map.removeLayer(state.drawnLayer);
+    try{ layerControl.removeLayer(state.drawnLayer); }catch(e){}
+  }
+  state.selected.clear();
+
+  state.drawnLayer = L.geoJSON(data, {
+    style: (f) => styleForFeature(state.layerKey, f),
+    pointToLayer: (f, latlng) => pointToLayer(state.layerKey, f, latlng),
+    onEachFeature: (feature, lyr) => {
+      lyr.on("click", () => toggleSelect(feature.id, lyr, feature));
+      lyr.bindTooltip(() => {
+        const p = feature.properties || {};
+        return (p.name || feature.id || "").toString();
+      }, { sticky: true, opacity: 0.9 });
+    }
+  }).addTo(map);
+
+  layerControl.addOverlay(state.drawnLayer, "DB: " + state.layerKey);
+  status1("ok (" + (data.features?.length ?? 0) + " feat in bbox)");
+}
+
+function toggleSelect(id, lyr, feature){
+  if (state.selected.has(id)){
+    state.selected.delete(id);
+    lyr.setStyle && lyr.setStyle(styleForFeature(state.layerKey, feature));
+  }else{
+    state.selected.set(id, lyr);
+    if (lyr.setStyle){
+      lyr.setStyle({ color:"#f59e0b", weight:4 });
+    }
+  }
+
+  const p = feature.properties || {};
+  const html = `
+    <div style="font-family:Inter; font-size:12px;">
+      <div style="font-weight:800; margin-bottom:6px;">${p.name ?? "—"}</div>
+      <div><b>id</b>: ${feature.id}</div>
+      ${Object.entries(p).filter(([k])=>k!=="id").map(([k,v])=>`<div><b>${k}</b>: ${String(v ?? "")}</div>`).join("")}
+      <div style="margin-top:10px; display:flex; gap:8px;">
+        <button onclick="window.__editFeature('${feature.id}')" style="padding:6px 10px; border-radius:10px; border:1px solid rgba(0,0,0,0.2); cursor:pointer;">Modifica</button>
+      </div>
+    </div>`;
+  lyr.bindPopup(html).openPopup();
+}
+
+window.__editFeature = async (id) => {
+  let target;
+  state.drawnLayer.eachLayer(l => {
+    if (l.feature && l.feature.id === id) target = l;
+  });
+  if (!target) return;
+  openAttrsModal(target.feature, target);
+};
+
+/* SAVE / DELETE (usa public.rpc_upsert / rpc_delete) */
+function layerToGeoJSONGeometry(leafletLayer){
+  return leafletLayer.toGeoJSON().geometry;
+}
+
+function propsFromFeature(feature){
+  const p = feature.properties || {};
+  if (state.layerKey === "parcels"){
+    return { name: p.name ?? "", landuse: p.landuse ?? "", notes: p.notes ?? "" };
+  }
+  if (state.layerKey === "roads"){
+    return { name: p.name ?? "", road_type: p.road_type ?? "", notes: p.notes ?? "" };
+  }
+  return { name: p.name ?? "", category: p.category ?? "", notes: p.notes ?? "" };
+}
+
+async function saveFeature(featureId, geometry, attrs){
+  const { data, error } = await sb.rpc("rpc_upsert", {
+    p_layer: state.layerKey,
+    p_id: featureId || null,
+    p_geom: geometry,
+    p_attrs: attrs
+  });
+  if (error) throw error;
+  return data;
+}
+
+async function deleteFeature(featureId){
+  const { data, error } = await sb.rpc("rpc_delete", { p_layer: state.layerKey, p_id: featureId });
+  if (error) throw error;
+  return data;
+}
+
+/* Geoman events */
+map.on('pm:create', async (e) => {
+  try{
+    const g = layerToGeoJSONGeometry(e.layer);
+    const attrs = defaultAttrsForLayer();
+    const newId = await saveFeature(null, g, attrs);
+    status1("salvato: " + newId);
+    await loadBbox();
+  }catch(err){
+    alert("Errore salvataggio: " + err.message);
+    try{ map.removeLayer(e.layer); }catch(e){}
+  }
+});
+
+map.on('pm:edit', async (e) => {
+  try{
+    const layers = e.layers.getLayers ? e.layers.getLayers() : [];
+    for (const l of layers){
+      const f = l.feature;
+      if (!f?.id) continue;
+      const g = layerToGeoJSONGeometry(l);
+      const attrs = propsFromFeature(f);
+      await saveFeature(f.id, g, attrs);
+    }
+    status1("modifiche salvate");
+    await loadBbox();
+  }catch(err){
+    alert("Errore update: " + err.message);
+  }
+});
+
+map.on('pm:remove', async (e) => {
+  try{
+    const f = e.layer.feature;
+    if (!f?.id) return;
+    await deleteFeature(f.id);
+    status1("eliminato: " + f.id);
+    await loadBbox();
+  }catch(err){
+    alert("Errore delete: " + err.message);
+  }
+});
+
+function defaultAttrsForLayer(){
+  if (state.layerKey === "parcels") return { name:"", landuse:"", notes:"" };
+  if (state.layerKey === "roads") return { name:"", road_type:"", notes:"" };
+  return { name:"", category:"", notes:"" };
+}
+
+/* ATTRIBUTES MODAL */
+async function openAttrsModal(feature, leafletLayer){
+  const p = propsFromFeature(feature);
+  const title = "Attributi (" + state.layerKey + ")";
+  let a1Label, a2Label;
+
+  if (state.layerKey === "parcels"){ a1Label="name"; a2Label="landuse"; }
+  if (state.layerKey === "roads"){ a1Label="name"; a2Label="road_type"; }
+  if (state.layerKey === "pois"){ a1Label="name"; a2Label="category"; }
+
+  const a1 = prompt(title + " — " + a1Label, p[a1Label] ?? "");
+  if (a1 === null) return;
+  const a2 = prompt(title + " — " + a2Label, p[a2Label] ?? "");
+  if (a2 === null) return;
+  const notes = prompt(title + " — notes", p.notes ?? "");
+  if (notes === null) return;
+
+  const attrs = { ...p, [a1Label]: a1, [a2Label]: a2, notes: notes };
+
+  try{
+    const g = leafletLayer ? layerToGeoJSONGeometry(leafletLayer) : feature.geometry;
+    const id = feature.id;
+    await saveFeature(id, g, attrs);
+    status1("attributi salvati");
+    await loadBbox();
+  }catch(err){
+    alert("Errore attributi: " + err.message);
+  }
+}
+
+$("btnNewAttrs").addEventListener("click", async () => {
+  const firstId = state.selected.keys().next().value;
+  if (!firstId){ alert("Seleziona una feature."); return; }
+
+  let target;
+  state.drawnLayer.eachLayer(l => { if (l.feature?.id === firstId) target = l; });
+  if (!target) return;
+
+  await openAttrsModal(target.feature, target);
+});
+
+$("btnDeleteSel").addEventListener("click", async () => {
+  const ids = [...state.selected.keys()];
+  if (!ids.length){ alert("Nessuna selezione."); return; }
+  if (!confirm("Eliminare " + ids.length + " feature?")) return;
+  try{
+    for (const id of ids) await deleteFeature(id);
+    state.selected.clear();
+    await loadBbox();
+  }catch(err){
+    alert("Errore: " + err.message);
+  }
+});
+
+/* TABLE (rpc_table_page) */
+function renderTable(rows){
+  const head = $("attrHead");
+  const body = $("attrBody");
+  head.innerHTML = "";
+  body.innerHTML = "";
+
+  if (!rows.length){
+    head.innerHTML = "<th>—</th>";
+    body.innerHTML = "<tr><td>Nessun record</td></tr>";
+    return;
+  }
+
+  const cols = Object.keys(rows[0]).filter(k => k !== "geom");
+  cols.forEach(c => {
+    const th = document.createElement("th");
+    th.textContent = c;
+    head.appendChild(th);
+  });
+
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.addEventListener("click", () => zoomToId(r.id));
+    cols.forEach(c => {
+      const td = document.createElement("td");
+      td.textContent = (r[c] ?? "").toString();
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+
+async function loadTablePage(reset=false){
+  if (reset) state.table.offset = 0;
+  const q = $("qSearch").value.trim() || null;
+
+  const { data, error } = await sb.rpc("rpc_table_page", {
+    p_layer: state.layerKey,
+    p_offset: state.table.offset,
+    p_limit: state.table.limit,
+    p_order_by: "updated_at",
+    p_order_dir: "desc",
+    p_q: q
+  });
+
+  if (error){ alert("Errore tabella: " + error.message); return; }
+
+  state.table.total = data.total;
+  state.table.rows = data.rows;
+
+  renderTable(state.table.rows);
+
+  const a = state.table.offset + 1;
+  const b = state.table.offset + state.table.rows.length;
+  $("pageInfo").textContent = `${state.table.total? a:0}–${b} / ${state.table.total}`;
+}
+
+async function zoomToId(id){
+  let target;
+  state.drawnLayer.eachLayer(l => { if (l.feature?.id === id) target = l; });
+  if (target){
+    map.fitBounds(target.getBounds(), { padding:[30,30] });
+    target.openPopup && target.openPopup();
+  }else{
+    alert("Record non in bbox corrente: vai su Layer > Ricarica bbox dopo aver zoomato sull’area.");
+  }
+}
+
+$("btnQuery").addEventListener("click", () => loadTablePage(true));
+$("btnClearQ").addEventListener("click", () => { $("qSearch").value=""; loadTablePage(true); });
+$("btnPrev").addEventListener("click", () => {
+  state.table.offset = Math.max(0, state.table.offset - state.table.limit);
+  loadTablePage(false);
+});
+$("btnNext").addEventListener("click", () => {
+  if (state.table.offset + state.table.limit >= state.table.total) return;
+  state.table.offset += state.table.limit;
+  loadTablePage(false);
+});
+
+/* FIELD CALC (rpc_field_calc) */
+$("btnRunFC").addEventListener("click", async () => {
+  const field = $("fcField").value;
+  const expr = $("fcExpr").value.trim();
+  const where = $("fcWhere").value.trim() || "true";
+  if (!expr){ alert("Inserisci un'espressione."); return; }
+
+  try{
+    statusFC("eseguo…");
+    const { data, error } = await sb.rpc("rpc_field_calc", {
+      p_layer: state.layerKey,
+      p_field: field,
+      p_expr_sql: expr,
+      p_where_sql: where
+    });
+    if (error) throw error;
+    statusFC("✅ aggiornati: <b>" + data.updated + "</b>");
+    await loadBbox();
+    await loadTablePage(true);
+  }catch(err){
+    statusFC("❌ " + err.message);
+  }
+});
+
+/* GEOPROCESSING (rpc_buffer_parcels) */
+$("btnBuffer").addEventListener("click", async () => {
+  if (state.layerKey !== "parcels"){
+    statusGP("Buffer demo attivo solo su parcels.");
+    return;
+  }
+  const ids = [...state.selected.keys()];
+  if (!ids.length){ statusGP("Seleziona almeno una parcel."); return; }
+  const dist = parseFloat($("bufDist").value || "0");
+  if (!(dist>0)){ statusGP("Distanza non valida."); return; }
+
+  try{
+    statusGP("buffer…");
+    const { data, error } = await sb.rpc("rpc_buffer_parcels", { p_ids: ids, p_distance_m: dist });
+    if (error) throw error;
+    statusGP("✅ buffer salvati: <b>" + data.inserted + "</b> (tabella parcels_buffer)");
+  }catch(err){
+    statusGP("❌ " + err.message);
+  }
+});
+
+/* WMS */
+$("btnAddWms").addEventListener("click", () => {
+  const url = $("wmsUrl").value.trim();
+  const layerName = $("wmsLayerName").value.trim();
+  const title = $("wmsTitle").value.trim() || layerName || "WMS";
+
+  if (!url || !layerName){
+    alert("Inserisci sia l'URL del WMS sia il nome del layer.");
+    return;
+  }
+
+  // Se c'è già un WMS, lo rimuovo prima
+  if (state.wmsLayer){
+    try {
+      layerControl.removeLayer(state.wmsLayer);
+      map.removeLayer(state.wmsLayer);
+    } catch (e) {}
+    state.wmsLayer = null;
+  }
+
+  // Crea il layer WMS
+  state.wmsLayer = L.tileLayer.wms(url, {
+    layers: layerName,
+    format: "image/png",
+    transparent: true,
+    opacity: 0.6
+  }).addTo(map);
+
+  layerControl.addOverlay(state.wmsLayer, title);
+});
+
+$("btnToggleWms").addEventListener("click", () => {
+  if (!state.wmsLayer){
+    alert("Nessun WMS aggiunto. Inserisci URL e layer e clicca su 'Aggiungi WMS'.");
+    return;
+  }
+  if (map.hasLayer(state.wmsLayer)) {
+    map.removeLayer(state.wmsLayer);
+  } else {
+    map.addLayer(state.wmsLayer);
+  }
+});
+
+
+/* TOP BUTTONS */
+$("btnReload").addEventListener("click", () => loadBbox());
+$("btnFit").addEventListener("click", async () => {
+  map.fitBounds(map.getBounds(), { padding:[20,20] });
+});
+
+$("layerSelect").addEventListener("change", async (e) => {
+  state.layerKey = e.target.value;
+  $("pillLayer").textContent = state.layerKey;
+  refreshFieldCalcFields();
+  state.selected.clear();
+  await loadBbox();
+  await loadTablePage(true);
+});
+
+$("btnPrint").addEventListener("click", () => printer.printMap("Current", "webgis-export"));
+$("btnMeasureHint").addEventListener("click", () => {
+  alert("Misure veloci: usa Geoman\n- Linea: misura lunghezza\n- Poligono: misura area\nOppure attiviamo un tool righello dedicato se vuoi.");
+});
+
+/* INIT */
+(async function init(){
+  try{
+    await loadLayersMeta();
+    await loadBbox();
+    await loadTablePage(true);
+  }catch(err){
+    alert("Init error: " + err.message);
+  }
+})();
+</script>
+</body>
+</html>
