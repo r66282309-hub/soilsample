@@ -27,6 +27,9 @@
   <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- Shapefile (upload locale) -->
+  <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
+
   <style>
     :root{
       --bg: #0b1220;
@@ -43,9 +46,20 @@
       --radius: 18px;
     }
     *{ box-sizing:border-box; }
-    html, body{ height:100%; margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background: radial-gradient(1200px 700px at 12% 10%, #172554 0%, #0b1220 45%, #050913 100%); color:var(--text); }
+    html, body{
+      height:100%; margin:0;
+      font-family:Inter,system-ui,Segoe UI,Roboto,Arial;
+      background: radial-gradient(1200px 700px at 12% 10%, #172554 0%, #0b1220 45%, #050913 100%);
+      color:var(--text);
+    }
     #app{ height:100%; display:flex; gap:14px; padding:14px; }
-    #map{ flex:1; border-radius:var(--radius); overflow:hidden; box-shadow: var(--shadow); position:relative; }
+    #map{
+      flex:1;
+      border-radius:var(--radius);
+      overflow:hidden;
+      box-shadow: var(--shadow);
+      position:relative;
+    }
 
     .panel{
       width: 420px; min-width: 360px; max-width: 480px;
@@ -62,9 +76,7 @@
       display:flex; align-items:center; justify-content:space-between;
       background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02));
     }
-    .brand{
-      display:flex; gap:10px; align-items:center;
-    }
+    .brand{ display:flex; gap:10px; align-items:center; }
     .logo{
       width:36px; height:36px; border-radius:12px;
       background: radial-gradient(circle at 30% 30%, #93c5fd 0%, #2563eb 55%, #111827 100%);
@@ -114,35 +126,33 @@
       outline:none;
     }
     textarea{ min-height:72px; resize:vertical; }
+
     .btn{
-  padding:10px 12px;
-  border-radius: 12px;
-  border:1px solid rgba(255,255,255,0.35);
-  background:#ffffff;              /* <-- bianco pieno */
-  color:#0b1220;                   /* testo scuro */
-  cursor:pointer;
-  font-weight:700;
-  display:flex; align-items:center; justify-content:center; gap:10px;
-}
-.btn:hover{
-  background:#f3f4f6;              /* bianco/grigio chiarissimo al passaggio */
-}
+      padding:10px 12px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,0.35);
+      background:#ffffff;
+      color:#0b1220;
+      cursor:pointer;
+      font-weight:700;
+      display:flex; align-items:center; justify-content:center; gap:10px;
+    }
+    .btn:hover{ background:#f3f4f6; }
 
-/* varianti mantengono il bordo colorato ma restano bianche */
-.btn.primary{
-  background:#ffffff;
-  border-color: rgba(96,165,250,0.8);
-}
-.btn.danger{
-  background:#ffffff;
-  border-color: rgba(239,68,68,0.8);
-}
-.btn.ok{
-  background:#ffffff;
-  border-color: rgba(34,197,94,0.8);
-}
+    .btn.primary{
+      background:#ffffff;
+      border-color: rgba(96,165,250,0.8);
+    }
+    .btn.danger{
+      background:#ffffff;
+      border-color: rgba(239,68,68,0.8);
+    }
+    .btn.ok{
+      background:#ffffff;
+      border-color: rgba(34,197,94,0.8);
+    }
 
-.pill{
+    .pill{
       display:inline-flex; align-items:center; gap:8px;
       padding:8px 10px; border-radius:999px;
       border:1px solid var(--border);
@@ -169,18 +179,17 @@
     .small{ font-size:12px; color: var(--muted); }
 
     /* Bottoni Geoman bianchi */
-.leaflet-pm-toolbar a{
-  background:#ffffff !important;          /* sfondo bianco */
-  border-radius:999px !important;         /* tondo */
-  border:1px solid rgba(148,163,184,0.9) !important;
-  color:#0b1220 !important;               /* icone scure (dove possibile) */
-  box-shadow:0 2px 4px rgba(15,23,42,0.35);
-}
+    .leaflet-pm-toolbar a{
+      background:#ffffff !important;
+      border-radius:999px !important;
+      border:1px solid rgba(148,163,184,0.9) !important;
+      color:#0b1220 !important;
+      box-shadow:0 2px 4px rgba(15,23,42,0.35);
+    }
+    .leaflet-pm-toolbar a:hover{
+      background:#f3f4f6 !important;
+    }
 
-/* Hover un po' più chiaro */
-.leaflet-pm-toolbar a:hover{
-  background:#f3f4f6 !important;
-}
     .leaflet-control-layers label{ color: var(--text); }
   </style>
 </head>
@@ -205,9 +214,10 @@
       <div class="tab" data-tab="tools"><i class="fa-solid fa-wand-magic-sparkles"></i>Tools</div>
     </div>
 
+    <!-- TAB: LAYERS -->
     <div class="content" id="tab-layers">
       <div class="card">
-        <label>Layer attivo (editing + tabella)</label>
+        <label>Layer attivo (editing + tabella, da Supabase)</label>
         <select id="layerSelect"></select>
         <div class="row" style="margin-top:10px;">
           <button class="btn primary" id="btnReload"><i class="fa-solid fa-rotate"></i>Ricarica bbox</button>
@@ -219,8 +229,8 @@
       <div class="card">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
           <div>
-            <div style="font-weight:800;">Editing</div>
-            <div class="small">Disegna/modifica e salva su Supabase</div>
+            <div style="font-weight:800;">Editing DB</div>
+            <div class="small">Disegna/modifica e salva su Supabase (layer attivo).</div>
           </div>
           <span class="pill"><i class="fa-solid fa-pen-ruler"></i><span>Geoman</span></span>
         </div>
@@ -233,38 +243,128 @@
         </div>
       </div>
 
-<div class="card">
-      <div style="font-weight:800; margin-bottom:8px;">WMS</div>
-      <div class="small">Incolla l’URL del servizio WMS (endpoint) e il nome del layer.</div>
-
-      <div style="margin-top:10px;">
-        <label>URL WMS</label>
-        <input id="wmsUrl" placeholder="es. https://server/geoserver/wms"/>
-      </div>
-
-      <div style="margin-top:10px;">
-        <label>Nome layer (parametro <code>layers=</code>)</label>
-        <input id="wmsLayerName" placeholder="es. topp:states"/>
-      </div>
-
-      <div style="margin-top:10px;">
-        <label>Nome visualizzato in legenda</label>
-        <input id="wmsTitle" placeholder="es. Confini regionali"/>
-      </div>
-
-      <div class="row" style="margin-top:10px;">
-        <button class="btn" id="btnAddWms">
-          <i class="fa-solid fa-cloud"></i>Aggiungi WMS
+      <!-- STILE: LABEL + COLORE PER ATTRIBUTO (LAYER LOCALE) -->
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:8px;">Stile layer locale (etichette + colore per attributo)</div>
+        <div class="small">
+          Funziona sul <b>layer locale caricato</b> (Shapefile/GeoJSON), leggendo i campi reali dello shapefile.
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <label>Campo etichetta (tooltip)</label>
+            <select id="labelField"></select>
+          </div>
+          <div>
+            <label>Campo colore (categ.)</label>
+            <select id="colorField"></select>
+          </div>
+        </div>
+        <button class="btn" style="margin-top:10px;" id="btnApplyStyleLocal">
+          <i class="fa-solid fa-brush"></i>Applica a layer locale
         </button>
-        <button class="btn" id="btnToggleWms">
-          <i class="fa-solid fa-eye"></i>On/Off
-        </button>
+        <div class="small" style="margin-top:8px;">
+          Il colore viene assegnato ai valori distinti del campo scelto. Le etichette usano il campo di etichetta.
+        </div>
       </div>
-    </div> <!-- fine card WMS -->
 
-    <!-- >>> QUI chiudiamo il contenitore della TAB "layers" <<< -->
+      <!-- WMS -->
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:8px;">WMS</div>
+        <div class="small">Incolla l’URL del servizio WMS (endpoint) e il nome del layer.</div>
+
+        <div style="margin-top:10px;">
+          <label>URL WMS</label>
+          <input id="wmsUrl" placeholder="es. https://server/geoserver/wms"/>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label>Nome layer (parametro <code>layers=</code>)</label>
+          <input id="wmsLayerName" placeholder="es. topp:states"/>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label>Nome visualizzato in legenda</label>
+          <input id="wmsTitle" placeholder="es. Confini regionali"/>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn" id="btnAddWms">
+            <i class="fa-solid fa-cloud"></i>Aggiungi WMS
+          </button>
+          <button class="btn" id="btnToggleWms">
+            <i class="fa-solid fa-eye"></i>On/Off
+          </button>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn danger" id="btnRemoveWms">
+            <i class="fa-solid fa-trash"></i>Rimuovi WMS
+          </button>
+        </div>
+      </div> <!-- fine card WMS -->
+
+      <!-- LAYER LOCALE: SHP (ZIP) / GEOJSON -->
+      <div class="card">
+        <div style="font-weight:800; margin-bottom:8px;">Layer locale (Shapefile ZIP / GeoJSON)</div>
+        <div class="small">
+          Carica un file dal disco e visualizzalo come overlay temporaneo (non va in Supabase).<br/>
+          Per lo shapefile usa uno <b>.zip</b> con .shp + .dbf + .prj.
+        </div>
+
+        <div style="margin-top:10px;">
+          <label>File vettoriale</label>
+          <input id="localFile" type="file" accept=".zip,.geojson,.json,.gpkg,.shp"/>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label>Nome in legenda</label>
+          <input id="localTitle" placeholder="es. layer locale"/>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <label>Colore bordo (base)</label>
+            <input id="localStroke" type="color" value="#f97316"/>
+          </div>
+          <div>
+            <label>Colore riempimento (base)</label>
+            <input id="localFill" type="color" value="#fbbf24"/>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <div>
+            <label>Spessore linea</label>
+            <input id="localWeight" type="number" min="1" max="10" value="2"/>
+          </div>
+          <div>
+            <label>Opacità riempimento (0–1)</label>
+            <input id="localOpacity" type="number" step="0.1" min="0" max="1" value="0.6"/>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label>Raggio punti (solo geometrie point)</label>
+          <input id="localRadius" type="number" min="1" max="30" value="6"/>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="btnLoadLocal">
+            <i class="fa-solid fa-file-import"></i>Carica
+          </button>
+          <button class="btn" id="btnStyleLocal">
+            <i class="fa-solid fa-palette"></i>Applica stile base
+          </button>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn danger" id="btnRemoveLocal">
+            <i class="fa-solid fa-trash"></i>Rimuovi layer
+          </button>
+        </div>
+        <div class="small" id="statusLocal" style="margin-top:10px;">—</div>
+      </div>
     </div> <!-- chiude .content id="tab-layers" -->
 
+    <!-- TAB: ATTRS -->
     <div class="content" id="tab-attrs" style="display:none;">
       <div class="card">
         <label>Ricerca (name contains)</label>
@@ -276,7 +376,7 @@
       </div>
 
       <div class="card">
-        <div style="font-weight:800; margin-bottom:10px;">Tabella attributi</div>
+        <div style="font-weight:800; margin-bottom:10px;">Tabella attributi (layer Supabase)</div>
         <div style="overflow:auto;">
           <table id="attrTable">
             <thead><tr id="attrHead"></tr></thead>
@@ -291,6 +391,7 @@
       </div>
     </div>
 
+    <!-- TAB: TOOLS -->
     <div class="content" id="tab-tools" style="display:none;">
       <div class="card">
         <div style="font-weight:800; margin-bottom:8px;">Misure + Export</div>
@@ -350,15 +451,29 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const state = {
   layerKey: "parcels",
   layersMeta: {},
-  drawnLayer: null,
+  drawnLayer: null,   // layer Supabase
   selected: new Map(),
   wmsLayer: null,
+
+  // Layer locale (shapefile/GeoJSON)
+  localLayer: null,
+  localGeoJSON: null,
+  localTitle: "Layer locale",
+  localFields: [],
+  localLabelField: null,
+  localColorField: null,
+  localColorLookup: {},
+
   table: { offset: 0, limit: 25, total: 0, rows: [] }
 };
 
 const status1 = (msg) => document.getElementById("status1").innerHTML = "Stato: <b>" + msg + "</b>";
 const statusFC = (msg) => document.getElementById("statusFC").innerHTML = msg;
 const statusGP = (msg) => document.getElementById("statusGP").innerHTML = msg;
+const statusLocal = (msg) => {
+  const el = document.getElementById("statusLocal");
+  if (el) el.innerHTML = msg;
+};
 
 function $(id){ return document.getElementById(id); }
 
@@ -418,8 +533,10 @@ async function loadLayersMeta(){
   refreshFieldCalcFields();
 }
 
+/* FIELD CALC FIELDS (Supabase layer) */
 function refreshFieldCalcFields(){
   const f = $("fcField");
+  if (!f) return;
   f.innerHTML = "";
   const lk = state.layerKey;
   const fields = lk==="parcels" ? ["name","landuse","notes"]
@@ -432,7 +549,7 @@ function refreshFieldCalcFields(){
   });
 }
 
-/* STYLE */
+/* STYLE DB LAYERS (semplice, senza classificazione per attributo) */
 function styleForFeature(layerKey, feature){
   const meta = state.layersMeta[layerKey];
   const s = (meta && meta.style) ? meta.style : {};
@@ -462,7 +579,7 @@ function pointToLayer(layerKey, feature, latlng){
   });
 }
 
-/* BBOX LOAD (usa public.rpc_geojson_bbox) */
+/* BBOX LOAD (usa public.rpc_geojson_bbox) per layer Supabase */
 async function loadBbox(){
   status1("carico…");
   const b = map.getBounds();
@@ -500,7 +617,8 @@ async function loadBbox(){
   }).addTo(map);
 
   layerControl.addOverlay(state.drawnLayer, "DB: " + state.layerKey);
-  status1("ok (" + (data.features?.length ?? 0) + " feat in bbox)");
+  const count = data.features?.length ?? 0;
+  status1("ok (" + count + " feat in bbox)");
 }
 
 function toggleSelect(id, lyr, feature){
@@ -569,7 +687,7 @@ async function deleteFeature(featureId){
   return data;
 }
 
-/* Geoman events */
+/* Geoman events (Supabase) */
 map.on('pm:create', async (e) => {
   try{
     const g = layerToGeoJSONGeometry(e.layer);
@@ -618,7 +736,7 @@ function defaultAttrsForLayer(){
   return { name:"", category:"", notes:"" };
 }
 
-/* ATTRIBUTES MODAL */
+/* ATTRIBUTES MODAL (Supabase) */
 async function openAttrsModal(feature, leafletLayer){
   const p = propsFromFeature(feature);
   const title = "Attributi (" + state.layerKey + ")";
@@ -672,7 +790,7 @@ $("btnDeleteSel").addEventListener("click", async () => {
   }
 });
 
-/* TABLE (rpc_table_page) */
+/* TABLE (rpc_table_page, Supabase) */
 function renderTable(rows){
   const head = $("attrHead");
   const body = $("attrBody");
@@ -752,7 +870,7 @@ $("btnNext").addEventListener("click", () => {
   loadTablePage(false);
 });
 
-/* FIELD CALC (rpc_field_calc) */
+/* FIELD CALC (rpc_field_calc, Supabase) */
 $("btnRunFC").addEventListener("click", async () => {
   const field = $("fcField").value;
   const expr = $("fcExpr").value.trim();
@@ -776,7 +894,7 @@ $("btnRunFC").addEventListener("click", async () => {
   }
 });
 
-/* GEOPROCESSING (rpc_buffer_parcels) */
+/* GEOPROCESSING (rpc_buffer_parcels, Supabase) */
 $("btnBuffer").addEventListener("click", async () => {
   if (state.layerKey !== "parcels"){
     statusGP("Buffer demo attivo solo su parcels.");
@@ -808,7 +926,6 @@ $("btnAddWms").addEventListener("click", () => {
     return;
   }
 
-  // Se c'è già un WMS, lo rimuovo prima
   if (state.wmsLayer){
     try {
       layerControl.removeLayer(state.wmsLayer);
@@ -817,7 +934,6 @@ $("btnAddWms").addEventListener("click", () => {
     state.wmsLayer = null;
   }
 
-  // Crea il layer WMS
   state.wmsLayer = L.tileLayer.wms(url, {
     layers: layerName,
     format: "image/png",
@@ -840,6 +956,305 @@ $("btnToggleWms").addEventListener("click", () => {
   }
 });
 
+$("btnRemoveWms").addEventListener("click", () => {
+  if (!state.wmsLayer){
+    alert("Nessun WMS da rimuovere.");
+    return;
+  }
+  try{
+    layerControl.removeLayer(state.wmsLayer);
+    map.removeLayer(state.wmsLayer);
+  }catch(e){}
+  state.wmsLayer = null;
+  $("wmsUrl").value = "";
+  $("wmsLayerName").value = "";
+  $("wmsTitle").value = "";
+});
+
+/* LAYER LOCALE (Shapefile ZIP / GeoJSON) */
+
+// stile base (quando non uso classificazione per attributo)
+function getLocalBaseStyle(){
+  const color = $("localStroke")?.value || "#f97316";
+  const fillColor = $("localFill")?.value || "#fbbf24";
+  const weight = parseFloat($("localWeight")?.value || "2") || 2;
+  let opacity = parseFloat($("localOpacity")?.value || "0.6");
+  if (isNaN(opacity) || opacity < 0) opacity = 0.0;
+  if (opacity > 1) opacity = 1.0;
+  const radius = parseFloat($("localRadius")?.value || "6") || 6;
+  return { color, fillColor, weight, opacity, radius };
+}
+
+// costruisce lookup colori per ogni valore distinto del campo scelto
+function buildLocalColorLookup(features){
+  state.localColorLookup = {};
+  const field = state.localColorField;
+  if (!field) return;
+  const palette = [
+    "#f97316","#22c55e","#3b82f6","#e11d48","#a855f7",
+    "#14b8a6","#facc15","#6366f1","#84cc16","#ec4899"
+  ];
+  let idx = 0;
+  features.forEach(ft => {
+    const p = ft.properties || {};
+    const v = p[field];
+    if (v === null || v === undefined || v === "") return;
+    const key = String(v);
+    if (!(key in state.localColorLookup)){
+      state.localColorLookup[key] = palette[idx % palette.length];
+      idx++;
+    }
+  });
+}
+
+// stile feature locale (poligoni/linee)
+function styleLocalFeature(feature, base){
+  const field = state.localColorField;
+  let attrColor = null;
+  if (field && feature.properties){
+    const v = feature.properties[field];
+    if (v !== null && v !== undefined){
+      const key = String(v);
+      if (state.localColorLookup[key]) attrColor = state.localColorLookup[key];
+    }
+  }
+  const stroke = attrColor || base.color;
+  const fill = attrColor || base.fillColor;
+  return {
+    color: stroke,
+    weight: base.weight,
+    fillColor: fill,
+    fillOpacity: base.opacity
+  };
+}
+
+// stile punti locale
+function pointToLayerLocal(feature, latlng, base){
+  const field = state.localColorField;
+  let attrColor = null;
+  if (field && feature.properties){
+    const v = feature.properties[field];
+    if (v !== null && v !== undefined){
+      const key = String(v);
+      if (state.localColorLookup[key]) attrColor = state.localColorLookup[key];
+    }
+  }
+  const fill = attrColor || base.fillColor;
+  return L.circleMarker(latlng, {
+    color: base.color,
+    weight: base.weight,
+    fillColor: fill,
+    fillOpacity: base.opacity,
+    radius: base.radius
+  });
+}
+
+// popola combo labelField / colorField con i CAMPI REALI del layer locale
+function refreshLocalStyleFields(){
+  const lf = $("labelField");
+  const cf = $("colorField");
+  if (!lf || !cf) return;
+
+  lf.innerHTML = "";
+  cf.innerHTML = "";
+
+  const fields = state.localFields || [];
+  const emptyOpt1 = document.createElement("option");
+  emptyOpt1.value = "";
+  emptyOpt1.textContent = "(nessuna)";
+  lf.appendChild(emptyOpt1);
+  const emptyOpt2 = document.createElement("option");
+  emptyOpt2.value = "";
+  emptyOpt2.textContent = "(nessuno)";
+  cf.appendChild(emptyOpt2);
+
+  fields.forEach(name => {
+    const o1 = document.createElement("option");
+    o1.value = name;
+    o1.textContent = name;
+    lf.appendChild(o1);
+
+    const o2 = document.createElement("option");
+    o2.value = name;
+    o2.textContent = name;
+    cf.appendChild(o2);
+  });
+
+  // reset selezione
+  lf.value = "";
+  cf.value = "";
+  state.localLabelField = null;
+  state.localColorField = null;
+  state.localColorLookup = {};
+}
+
+// renderizza (o ri-renderizza) il layer locale in mappa con stile/etichette
+function renderLocalLayer(){
+  if (!state.localGeoJSON) return;
+
+  if (state.localLayer){
+    try{
+      layerControl.removeLayer(state.localLayer);
+      map.removeLayer(state.localLayer);
+    }catch(e){}
+    state.localLayer = null;
+  }
+
+  const gj = state.localGeoJSON;
+  const base = getLocalBaseStyle();
+  const features = Array.isArray(gj.features) ? gj.features : [];
+  buildLocalColorLookup(features);
+
+  state.localLayer = L.geoJSON(gj, {
+    style: (feature) => styleLocalFeature(feature, base),
+    pointToLayer: (feature, latlng) => pointToLayerLocal(feature, latlng, base),
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties || {};
+      let label = "";
+      if (state.localLabelField && p[state.localLabelField] != null && p[state.localLabelField] !== ""){
+        label = String(p[state.localLabelField]);
+      } else if (p.name != null && p.name !== ""){
+        label = String(p.name);
+      }
+      if (label){
+        layer.bindTooltip(label, { sticky:true, opacity:0.9 });
+      }
+    }
+  }).addTo(map);
+
+  layerControl.addOverlay(state.localLayer, state.localTitle || "Layer locale");
+
+  try{
+    const b = state.localLayer.getBounds();
+    if (b.isValid()) map.fitBounds(b, { padding:[20,20] });
+  }catch(e){}
+}
+
+// carica file locale
+$("btnLoadLocal").addEventListener("click", () => {
+  const input = $("localFile");
+  const file = input && input.files && input.files[0];
+  if (!file){
+    alert("Seleziona un file vettoriale.");
+    return;
+  }
+
+  const name = $("localTitle").value.trim() || file.name;
+  statusLocal("Carico " + file.name + "…");
+
+  const parts = file.name.toLowerCase().split(".");
+  const ext = parts[parts.length - 1];
+
+  // GeoJSON
+  if (ext === "geojson" || ext === "json"){
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const gj = JSON.parse(reader.result);
+        state.localGeoJSON = gj;
+        state.localTitle = name;
+        // campi dallo shapefile/geojson
+        const feats = Array.isArray(gj.features) ? gj.features : [];
+        if (feats.length){
+          state.localFields = Object.keys(feats[0].properties || {});
+        } else {
+          state.localFields = [];
+        }
+        refreshLocalStyleFields();
+        renderLocalLayer();
+        statusLocal("✅ GeoJSON caricato");
+      }catch(err){
+        statusLocal("❌ Errore GeoJSON: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    return;
+  }
+
+  // Shapefile ZIP
+  if (ext === "zip"){
+    const reader = new FileReader();
+    reader.onload = () => {
+      shp(reader.result).then((gj) => {
+        state.localGeoJSON = gj;
+        state.localTitle = name;
+        const feats = Array.isArray(gj.features) ? gj.features : [];
+        if (feats.length){
+          state.localFields = Object.keys(feats[0].properties || {});
+        } else {
+          state.localFields = [];
+        }
+        refreshLocalStyleFields();
+        renderLocalLayer();
+        statusLocal("✅ Shapefile (zip) caricato");
+      }).catch(err => {
+        statusLocal("❌ Errore Shapefile: " + err.message);
+      });
+    };
+    reader.readAsArrayBuffer(file);
+    return;
+  }
+
+  if (ext === "shp"){
+    statusLocal("❌ Per lo shapefile carica uno ZIP con .shp + .dbf + .prj.");
+    return;
+  }
+
+  if (ext === "gpkg"){
+    statusLocal("❌ Supporto GeoPackage non attivato in questa versione (richiede setup extra).");
+    return;
+  }
+
+  alert("Formato non supportato. Usa .geojson/.json o .zip (shapefile).");
+});
+
+// applica stile base (solo colori/raggio, senza cambiare classificazione)
+$("btnStyleLocal").addEventListener("click", () => {
+  if (!state.localLayer){
+    alert("Nessun layer locale caricato.");
+    return;
+  }
+  renderLocalLayer(); // usa nuovi parametri base (stroke/fill/radius)
+  statusLocal("Stile base aggiornato.");
+});
+
+// rimuove layer locale
+$("btnRemoveLocal").addEventListener("click", () => {
+  if (!state.localLayer){
+    alert("Nessun layer locale da rimuovere.");
+    return;
+  }
+  try{
+    layerControl.removeLayer(state.localLayer);
+    map.removeLayer(state.localLayer);
+  }catch(e){}
+  state.localLayer = null;
+  state.localGeoJSON = null;
+  state.localFields = [];
+  refreshLocalStyleFields();
+  statusLocal("Layer locale rimosso.");
+});
+
+// CAMBO ETICHETTA / COLORE per layer locale
+$("labelField").addEventListener("change", () => {
+  const v = $("labelField").value || "";
+  state.localLabelField = v || null;
+});
+
+$("colorField").addEventListener("change", () => {
+  const v = $("colorField").value || "";
+  state.localColorField = v || null;
+});
+
+// Applica stile locale (etichette + colore per attributo)
+$("btnApplyStyleLocal").addEventListener("click", () => {
+  if (!state.localGeoJSON){
+    alert("Nessun layer locale caricato.");
+    return;
+  }
+  renderLocalLayer();
+  statusLocal("Stile (etichette/colore) aggiornato dal layer locale.");
+});
 
 /* TOP BUTTONS */
 $("btnReload").addEventListener("click", () => loadBbox());
@@ -858,12 +1273,16 @@ $("layerSelect").addEventListener("change", async (e) => {
 
 $("btnPrint").addEventListener("click", () => printer.printMap("Current", "webgis-export"));
 $("btnMeasureHint").addEventListener("click", () => {
-  alert("Misure veloci: usa Geoman\n- Linea: misura lunghezza\n- Poligono: misura area\nOppure attiviamo un tool righello dedicato se vuoi.");
+  alert("Misure veloci: usa Geoman\n- Linea: misura lunghezza\n- Poligono: misura area");
 });
 
 /* INIT */
 (async function init(){
   try{
+    // inizialmente nessun layer locale: prepara le combo vuote
+    state.localFields = [];
+    refreshLocalStyleFields();
+
     await loadLayersMeta();
     await loadBbox();
     await loadTablePage(true);
@@ -874,4 +1293,3 @@ $("btnMeasureHint").addEventListener("click", () => {
 </script>
 </body>
 </html>
-
