@@ -1,21 +1,21 @@
 <!doctype html>
 <html lang="it">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Uniss Soil Sample</title>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Uniss Soil Sample</title>
 
-  <!-- Leaflet CSS/JS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+	<!-- Leaflet -->
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+	<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Supabase JS v2 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<<!-- Supabase JS v2 (UMD) -->
+	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <!-- JSZip per creare KMZ -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+	<!-- JSZip per creare KMZ -->
+	<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-  <style>
+	<style>
     :root{
       --bg:#ffffff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --brand:#2563eb;
       --surface:#f8fafc; --shadow:0 6px 20px rgba(2,6,23,.12);
@@ -223,594 +223,734 @@
   </div>
 
   <script>
-    // =========================
-    //  CONFIG
-    // =========================
-    const START_VIEW = [40.0, 9.0];
-    const START_ZOOM = 8;
-    const GEOJSON_URL = 'points.geojson';
-    const LS_KEY = 'webgis_user_points_v1';
+window.addEventListener('load', () => {
+  // =========================
+  // CONFIG
+  // =========================
+  const START_VIEW = [40.0, 9.0];
+  const START_ZOOM = 8;
+  const GEOJSON_URL = 'points.geojson';
+  const LS_KEY = 'webgis_user_points_v1';
+  const ACCURACY_TABLE = 'accuracy_points';
+  const ACC_LABEL_ZOOM = 14;
 
-    // Supabase
-    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
-    const SUPABASE_ANON_KEY =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // =========================
+  // UTILITY
+  // =========================
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#039;');
+  }
 
-    // === Nuovo: nome tabella Supabase creata dall'upload del CSV ===
-    // Se in Supabase il nome è diverso, cambia qui (es. 'accuracy_points' o 'accuracy_point')
-    const ACCURACY_TABLE = 'accuracy_points';
+  function isValidLatLon(lat, lon) {
+    return Number.isFinite(lat) && Number.isFinite(lon) &&
+           lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+  }
 
-    // =========================
-    //  MAPPA
-    // =========================
-    const map = L.map('map').setView(START_VIEW, START_ZOOM);
-    
-    // Basemaps
-    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  function buildId(name, lat, lon) {
+    return String(lat.toFixed(6)) + ',' + String(lon.toFixed(6)) + '|' + String(name || '').trim().slice(0,80);
+  }
+
+  function getAny(obj, keys) {
+    if (!obj) return undefined;
+    for (const k of keys) {
+      if (k in obj && obj[k] != null && obj[k] !== '') return obj[k];
+      const low = k.toLowerCase();
+      for (const kk of Object.keys(obj)) {
+        if (kk.toLowerCase() === low && obj[kk] != null && obj[kk] !== '') return obj[kk];
+      }
+    }
+    return undefined;
+  }
+
+  function optRow(label, value) {
+    if (value === undefined || value === null || value === '') return '';
+    return (label ? (label + ': <b>' + escapeHtml(String(value)) + '</b><br>') : (escapeHtml(String(value)) + '<br>'));
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    if (!t) return;
+    t.textContent = msg || 'Aggiunto';
+    t.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+  // =========================
+  // Supabase init (tollerante)
+  // =========================
+  const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+  const SUPABASE_ANON_KEY =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+
+  let supabase = null;
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    try {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (e) {
+      console.error('Errore creazione client Supabase:', e);
+      supabase = null;
+    }
+  } else {
+    console.warn('Supabase SDK non trovata: le funzioni cloud saranno disabilitate.');
+  }
+
+  function resolvePhotoUrl(photo_url) {
+    const raw = String(photo_url || '').trim();
+    if (!raw || !supabase) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    try {
+      const result = supabase.storage.from('soil_photos').getPublicUrl(raw);
+      if (result && result.data && result.data.publicUrl) {
+        return result.data.publicUrl;
+      }
+    } catch (e) {
+      console.warn('Errore resolvePhotoUrl:', e);
+    }
+    return '';
+  }
+
+  async function resizeAndCompress(file, scale, quality) {
+    scale = scale || (1/3);
+    quality = quality || 0.85;
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = URL.createObjectURL(file);
+    });
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
+    return blob;
+  }
+
+  async function uploadPhotoToSupabase(blob, nameHint) {
+    if (!supabase) throw new Error('Supabase non inizializzato');
+    const storage = supabase.storage.from('soil_photos');
+    const ymd = new Date().toISOString().slice(0,10);
+    const fname = String(nameHint || 'punto').replace(/[^\w\-]+/g,'_').slice(0,40);
+    const key = ymd + '/' + Date.now() + '-' + fname + '.jpg';
+    const { error } = await storage.upload(key, blob, { contentType: 'image/jpeg', upsert: true });
+    if (error) throw error;
+    return key;
+  }
+
+  async function insertSupabasePoint(name, lat, lon, land_cover, photo_url) {
+    if (!supabase) return false;
+    const safeName = String(name || '').slice(0,80);
+    const safeLC   = String(land_cover || '').trim();
+    const { error } = await supabase
+      .from('points')
+      .insert([{ name: safeName, lat: lat, lon: lon, land_cover: safeLC, photo_url: photo_url || null }]);
+    if (error) {
+      console.error('Errore insert Supabase:', error);
+      return false;
+    }
+    return true;
+  }
+
+  // =========================
+  // MAPPA + LAYER
+  // =========================
+  if (typeof L === 'undefined') {
+    console.error('Leaflet non disponibile');
+    alert('Errore: Leaflet non caricato (L undefined).');
+    return;
+  }
+
+  const map = L.map('map').setView(START_VIEW, START_ZOOM);
+
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const esri = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    const esri = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {
-        maxZoom: 19,
-        attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-      }
-    );
-
-    const opentopo = L.tileLayer(
-      'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom: 17,
-        attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap'
-      }
-    );
-
-    const cartoLight = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-      {
-        maxZoom: 20,
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-      }
-    );
-
-    const cartoDark = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        maxZoom: 20,
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-      }
-    );
-
-    // Seed GeoJSON (già esistente)
-    const seedLayer  = L.geoJSON(null, {
-      pointToLayer: (feature, latlng) => {
-        const marker = L.marker(latlng);
-        const name = feature?.properties?.name || feature?.properties?.Nome || '';
-        if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -10], className: 'name-label' });
-        if (feature?.properties) marker.bindPopup(`<pre>${escapeHtml(JSON.stringify(feature.properties, null, 2))}</pre>`);
-        return marker;
-      }
-    }).addTo(map);
-
-    const localLayer = L.layerGroup().addTo(map);
-    const cloudLayer = L.layerGroup().addTo(map);
-    const gpsLayer   = L.layerGroup().addTo(map);
-
-    // === Nuovo: layer punti accuratezza da Supabase ===
-    const accuracyLayer = L.layerGroup(); // NON attivo di default
-
-    // Soglia di zoom per mostrare le etichette dei punti accuracy
-    const ACC_LABEL_ZOOM = 14;
-
-    // Piccolo helper per creare stringhe HTML senza annidare template literal
-    function optRow(label, value){
-      if (value === undefined || value === null || value === '') return '';
-      return label ? (label + ': <b>' + escapeHtml(String(value)) + '</b><br>') : (escapeHtml(String(value)) + '<br>');
+      attribution: 'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
     }
+  );
 
-    // Layer control
-    const baseLayers = {
-      'OSM Standard': osm,
-      'Ortofoto Esri': esri,
-      'OpenTopoMap': opentopo,
-      'Carto Light': cartoLight,
-      'Carto Dark': cartoDark
-    };
+  const opentopo = L.tileLayer(
+    'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    {
+      maxZoom: 17,
+      attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap'
+    }
+  );
 
-    const overlays = {
-      'Seed (GeoJSON)': seedLayer,
-      'Punti locali': localLayer,
-      'Punti cloud': cloudLayer,
-      'GPS': gpsLayer,
-      // Nuovo overlay attivabile a comando
-      'Punti Legacy': accuracyLayer
-    };
+  const cartoLight = L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    {
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }
+  );
 
-    const layersCtrl = L.control.layers(baseLayers, overlays, { position:'topright', collapsed:false }).addTo(map);
+  const cartoDark = L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    {
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }
+  );
 
-    // ===== indice marker cloud: id -> { marker, name, lat, lon }
-    const cloudIndex = new Map();
+  const seedLayer  = L.geoJSON(null, {
+    pointToLayer: (feature, latlng) => {
+      const marker = L.marker(latlng);
+      const props = feature && feature.properties ? feature.properties : {};
+      const name = props.name || props.Nome || '';
+      if (name) marker.bindTooltip(name, { permanent: true, direction: 'top', offset: [0,-10], className: 'name-label' });
+      marker.bindPopup('<pre>' + escapeHtml(JSON.stringify(props, null, 2)) + '</pre>');
+      return marker;
+    }
+  }).addTo(map);
 
-    // =========================
-    //  UTILITY
-    // Foto: costruisce URL pubblico dal bucket Supabase se serve
-    function resolvePhotoUrl(photo_url){
-      const raw = String(photo_url || '').trim();
-      if (!raw) return '';
-      if (/^https?:\/\//i.test(raw)) return raw;
+  const localLayer   = L.layerGroup().addTo(map);
+  const cloudLayer   = L.layerGroup().addTo(map);
+  const gpsLayer     = L.layerGroup().addTo(map);
+  const accuracyLayer= L.layerGroup(); // non attivo di default
+
+  const baseLayers = {
+    'OSM Standard': osm,
+    'Ortofoto Esri': esri,
+    'OpenTopoMap': opentopo,
+    'Carto Light': cartoLight,
+    'Carto Dark': cartoDark
+  };
+
+  const overlays = {
+    'Seed (GeoJSON)': seedLayer,
+    'Punti locali': localLayer,
+    'Punti cloud': cloudLayer,
+    'GPS': gpsLayer,
+    'Punti Legacy': accuracyLayer
+  };
+
+  L.control.layers(baseLayers, overlays, { position:'topright', collapsed:false }).addTo(map);
+
+  const cloudIndex = new Map();
+
+  function addLocalPoint(name, lat, lon, save) {
+    const marker = L.marker([lat, lon]).addTo(localLayer);
+    if (name) marker.bindTooltip(name, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
+    marker.bindPopup('<b>' + escapeHtml(name || '') + '</b><br>Lat: ' +
+      lat.toFixed(6) + '<br>Lon: ' + lon.toFixed(6));
+    if (save) {
+      let arr;
       try {
-        const { data } = supabase.storage.from('soil_photos').getPublicUrl(raw);
-        return data?.publicUrl || '';
-      } catch(e){ return ''; }
-    }
-
-    // Ridimensiona e comprime un'immagine in JPEG
-    async function resizeAndCompress(file, scale=1/3, quality=0.85){
-      const img = await new Promise((res, rej)=>{
-        const i = new Image();
-        i.onload = ()=> res(i);
-        i.onerror = rej;
-        i.src = URL.createObjectURL(file);
+        arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      } catch (e) {
+        arr = [];
+      }
+      arr.push({
+        type:'Feature',
+        geometry:{ type:'Point', coordinates:[lon,lat] },
+        properties:{ name: name || '' }
       });
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      const blob = await new Promise((res)=> canvas.toBlob(res, 'image/jpeg', quality));
-      return blob;
+      localStorage.setItem(LS_KEY, JSON.stringify(arr));
     }
+  }
 
-    // Carica il blob su Supabase Storage (bucket soil_photos) e ritorna il path
-    async function uploadPhotoToSupabase(blob, nameHint){
-      const storage = supabase.storage.from('soil_photos');
-      const ymd = new Date().toISOString().slice(0,10);
-      const fname = (nameHint || 'punto').toString().replace(/[^\w\-]+/g,'_').slice(0,40);
-      const key = `${ymd}/${Date.now()}-${fname}.jpg`;
-      const { error } = await storage.upload(key, blob, { contentType: 'image/jpeg', upsert: true });
-      if(error) throw error;
-      return key;
+  function loadLocalPoints() {
+    let arr;
+    try {
+      arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      if (!Array.isArray(arr)) arr = [];
+    } catch (e) {
+      console.warn('Errore parse localStorage:', e);
+      arr = [];
     }
+    arr.forEach(f => {
+      if (!f || !f.geometry || !Array.isArray(f.geometry.coordinates)) return;
+      const lon = Number(f.geometry.coordinates[0]);
+      const lat = Number(f.geometry.coordinates[1]);
+      if (!isValidLatLon(lat, lon)) return;
+      const name = (f.properties && f.properties.name) ? f.properties.name : '';
+      addLocalPoint(name, lat, lon, false);
+    });
+  }
 
-    // =========================
-    function escapeHtml(s) {
-      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
-    }
+  function addCloudPoint(name, lat, lon, photo_url) {
+    const marker = L.marker([lat, lon]).addTo(cloudLayer);
+    if (name) marker.bindTooltip(name, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
+    const img = resolvePhotoUrl(photo_url);
+    const imgHtml = img ? (
+      '<div style="margin-top:6px;">' +
+      '<img src="' + img + '" alt="foto" style="max-width:220px;max-height:160px;border-radius:8px;display:block;">' +
+      '</div>'
+    ) : '';
+    marker.bindPopup('<b>' + escapeHtml(name || '') + '</b><br>' + imgHtml);
+    const id = buildId(name, lat, lon);
+    marker.options.customId = id;
+    cloudIndex.set(id, { marker, name, lat, lon, photo_url });
+  }
 
-    function isValidLatLon(lat, lon) {
-      return Number.isFinite(lat) && Number.isFinite(lon) &&
-             lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
-    }
-
-    function buildId(name, lat, lon){
-      return `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}|${(name||'').trim().slice(0,80)}`;
-    }
-
-    function getAny(obj, keys){
-      for (const k of keys){
-        if (k in obj && obj[k] != null && obj[k] !== '') return obj[k];
-        const low = k.toLowerCase();
-        for (const kk of Object.keys(obj)){
-          if (kk.toLowerCase() === low) return obj[kk];
-        }
-      }
-      return undefined;
-    }
-
-    function addLocalPoint(name, lat, lon, save = true) {
-      const m = L.marker([lat, lon]).addTo(localLayer);
-      if (name) m.bindTooltip(name, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
-      m.bindPopup(`<b>${escapeHtml(name || '')}</b><br>Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}`);
-      if (save) {
-        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-        arr.push({ type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{ name: name || '' }});
-        localStorage.setItem(LS_KEY, JSON.stringify(arr));
-      }
-    }
-
-    function loadLocalPoints() {
-      try{
-        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-        arr.forEach(f => {
-          const [lon, lat] = f.geometry.coordinates;
-          addLocalPoint(f.properties?.name || '', lat, lon, false);
-        });
-      }catch(e){ console.warn('Local parse', e); }
-    }
-
-    function addCloudPoint(name, lat, lon, photo_url) {
-      const m = L.marker([lat,lon]).addTo(cloudLayer);
-      if (name) m.bindTooltip(name, { permanent:true, direction:'top', offset:[0,-10], className:'name-label' });
-            const img = resolvePhotoUrl(photo_url);
-      const imgHtml = img ? `<div style="margin-top:6px;"><img src="${img}" alt="foto" style="max-width:220px;max-height:160px;border-radius:8px;display:block;"></div>` : '';
-      m.bindPopup(`<b>${escapeHtml(name || '')}</b><br>${imgHtml}`);
-
-      const id = buildId(name, lat, lon);
-      m.options.customId = id;
-      cloudIndex.set(id, { marker: m, name, lat, lon, photo_url });
-    }
-
-    async function loadSupabasePoints() {
-      const {data, error} = await supabase
+  async function loadSupabasePoints() {
+    if (!supabase) return;
+    let data, error;
+    try {
+      const resp = await supabase
         .from('points')
         .select('name,lat,lon,photo_url')
         .order('created_at',{ascending:false})
         .limit(5000);
-      if (error) { console.warn('Supabase SELECT', error.message); return; }
-      cloudLayer.clearLayers();
-      cloudIndex.clear();
-      data.forEach(r => {
-        if (isValidLatLon(r.lat, r.lon)) addCloudPoint(r.name || '', r.lat, r.lon, r.photo_url);
-      });
-      if (document.getElementById('pointsModal').style.display === 'flex') {
-        renderPointsList();
-      }
+      data = resp.data;
+      error = resp.error;
+    } catch (e) {
+      console.error('Errore loadSupabasePoints:', e);
+      return;
     }
-
-    // >>> CORRETTO: prende anche land_cover e lo forza a stringa
-    async function insertSupabasePoint(name, lat, lon, land_cover, photo_url) {
-      const safeName = (name || '').slice(0,80);
-      const safeLC   = String(land_cover ?? '').trim();
-      const { error } = await supabase
-        .from('points')
-        .insert([{ name: safeName, lat, lon, land_cover: safeLC, photo_url: photo_url || null }]);
-      return !error;
+    if (error) {
+      console.error('Supabase SELECT points:', error);
+      return;
     }
-
-    // =========================
-    //  NUOVO: punti accuratezza (tabella CSV importata)
-    // =========================
-    let accuracyLoaded = false;
-
-    function addAccuracyPoint(row){
-      const lat = Number(getAny(row, ['Lat','lat','latitude']));
-      const lon = Number(getAny(row, ['Lon','lon','lng','long','longitude']));
+    cloudLayer.clearLayers();
+    cloudIndex.clear();
+    (data || []).forEach(r => {
+      const lat = Number(r.lat);
+      const lon = Number(r.lon);
       if (!isValidLatLon(lat, lon)) return;
-      const name   = getAny(row, ['Name','Nuovo','name','nome']) || '';
-      const codice = getAny(row, ['CODICE','codice']) || '';
-      const gps    = getAny(row, ['GPS','gps']) || '';
-      const acc1   = getAny(row, ['Accuratezza 1','accuratezza_1','accuratezza1']) || '';
-      const acc2   = getAny(row, ['Accuratezza 2','accuratezza_2','accuratezza2']) || '';
-      const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) || '';
-	  const clc    = getAny(row, ['Land Cover','Land_Cover','landcover']) || '';
-
-      const status = String(acc2).toLowerCase();
-	  let color = '#3388ff';
-
-	  /* Land Cover */
-	  if (clc === '1A')      color = '#dc2626';   // rosso
-	  else if (clc === '1B') color = '#059669';   // verde
-
-	  const marker = L.circleMarker([lat,lon], { radius: 6, weight: 2, color, fillOpacity: 0.7 }).addTo(accuracyLayer);
-      marker.options._labelName = name;
-
-      const htmlParts = [];
-      htmlParts.push('<div style="min-width:220px">');
-      htmlParts.push('<div><b>' + escapeHtml(name || '') + '</b></div>');
-      if (codice) htmlParts.push('<div><small>Codice: ' + escapeHtml(codice) + '</small></div>');
-      htmlParts.push('<div style="margin-top:6px; font-size:13px">');
-      htmlParts.push(optRow('GPS', gps));
-      htmlParts.push(optRow('Accuratezza 1', acc1));
-      htmlParts.push(optRow('Accuratezza 2', acc2));
-      htmlParts.push(optRow('Land Degradation', degr));
-	  htmlParts.push(optRow('Land Cover', clc));   // prova2
-      htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
-      htmlParts.push('</div></div>');
-      marker.bindPopup(htmlParts.join(''));
+      addCloudPoint(r.name || '', lat, lon, r.photo_url || '');
+    });
+    if (document.getElementById('pointsModal') &&
+        document.getElementById('pointsModal').style.display === 'flex') {
+      renderPointsList();
     }
+  }
 
-    function updateAccuracyLabels(){
-      const show = map.getZoom() >= ACC_LABEL_ZOOM;
-      accuracyLayer.eachLayer((lyr) => {
-        const nm = lyr?.options?._labelName || '';
-        const hasTooltip = !!lyr.getTooltip();
-        if (show && nm && !hasTooltip){
-          lyr.bindTooltip(nm, { permanent:true, direction:'top', offset:[0,-8], className:'name-label' });
-        } else if (!show && hasTooltip){
-          lyr.unbindTooltip();
-        }
-      });
-    }
+  function addAccuracyPoint(row) {
+    const lat = Number(getAny(row, ['Lat','lat','latitude']));
+    const lon = Number(getAny(row, ['Lon','lon','lng','long','longitude']));
+    if (!isValidLatLon(lat, lon)) return;
+    const name   = getAny(row, ['Name','Nuovo','name','nome']) || '';
+    const codice = getAny(row, ['CODICE','codice']) || '';
+    const gps    = getAny(row, ['GPS','gps']) || '';
+    const acc1   = getAny(row, ['Accuratezza 1','accuratezza_1','accuratezza1']) || '';
+    const acc2   = getAny(row, ['Accuratezza 2','accuratezza_2','accuratezza2']) || '';
+    const degr   = getAny(row, ['Land_Degradation','land_degradation','land_degr']) || '';
+    const clc    = getAny(row, ['Land Cover','Land_Cover','landcover']) || '';
 
-    async function loadAccuracyPoints(){
-      try{
-        const { data, error } = await supabase
-          .from(ACCURACY_TABLE)
-          .select('*')
-          .limit(20000);
-        if (error) { console.warn('Supabase SELECT accuracy', error.message); alert('Errore nel leggere la tabella di accuratezza.'); return; }
-        accuracyLayer.clearLayers();
-        (data || []).forEach(addAccuracyPoint);
-        accuracyLoaded = true;
-        updateAccuracyLabels();
-      }catch(e){ console.warn(e); }
-    }
+    let color = '#3388ff';
+    if (clc === '1A') color = '#dc2626';
+    else if (clc === '1B') color = '#059669';
 
-    map.on('overlayadd', (e) => {
-      if (e.layer === accuracyLayer && !accuracyLoaded) {
-        loadAccuracyPoints();
-      }
-      if (e.layer === accuracyLayer) {
-        updateAccuracyLabels();
+    const marker = L.circleMarker([lat, lon], {
+      radius: 6,
+      weight: 2,
+      color: color,
+      fillOpacity: 0.7
+    }).addTo(accuracyLayer);
+    marker.options._labelName = name;
+
+    const htmlParts = [];
+    htmlParts.push('<div style="min-width:220px">');
+    htmlParts.push('<div><b>' + escapeHtml(name || '') + '</b></div>');
+    if (codice) htmlParts.push('<div><small>Codice: ' + escapeHtml(codice) + '</small></div>');
+    htmlParts.push('<div style="margin-top:6px; font-size:13px">');
+    htmlParts.push(optRow('GPS', gps));
+    htmlParts.push(optRow('Accuratezza 1', acc1));
+    htmlParts.push(optRow('Accuratezza 2', acc2));
+    htmlParts.push(optRow('Land Degradation', degr));
+    htmlParts.push(optRow('Land Cover', clc));
+    htmlParts.push('Lat: ' + lat.toFixed(6) + ' • Lon: ' + lon.toFixed(6));
+    htmlParts.push('</div></div>');
+    marker.bindPopup(htmlParts.join(''));
+  }
+
+  function updateAccuracyLabels() {
+    const show = map.getZoom() >= ACC_LABEL_ZOOM;
+    accuracyLayer.eachLayer((lyr) => {
+      const nm = (lyr && lyr.options && lyr.options._labelName) ? lyr.options._labelName : '';
+      const hasTooltip = !!(lyr && typeof lyr.getTooltip === 'function' && lyr.getTooltip());
+      if (show && nm && !hasTooltip) {
+        lyr.bindTooltip(nm, { permanent:true, direction:'top', offset:[0,-8], className:'name-label' });
+      } else if (!show && hasTooltip) {
+        lyr.unbindTooltip();
       }
     });
+  }
 
-    map.on('zoomend', updateAccuracyLabels);
-	function showToast(msg){
-	const t = document.getElementById('toast');
-	if (!t) return;
-	t.textContent = msg || 'Aggiunto';
-	t.classList.add('show');
-	clearTimeout(showToast._t);
-	showToast._t = setTimeout(()=> t.classList.remove('show'), 1800);
-	}
-    // =========================
-    //  GPS
-    // =========================
-    function setGpsStatus(text, cls=''){
-      const el = document.getElementById('gpsStatus');
-      el.textContent = text;
-      el.classList.remove('gps-ok','gps-bad');
-      if (cls) el.classList.add(cls);
+  async function loadAccuracyPoints() {
+    if (!supabase) {
+      console.warn('Supabase non inizializzato: punti legacy non caricati.');
+      return;
     }
+    let data, error;
+    try {
+      const resp = await supabase
+        .from(ACCURACY_TABLE)
+        .select('*')
+        .limit(20000);
+      data = resp.data;
+      error = resp.error;
+    } catch (e) {
+      console.error('Errore loadAccuracyPoints:', e);
+      alert('Errore nel leggere la tabella di accuratezza.');
+      return;
+    }
+    if (error) {
+      console.error('Supabase SELECT accuracy:', error);
+      alert('Errore nel leggere la tabella di accuratezza.');
+      return;
+    }
+    accuracyLayer.clearLayers();
+    (data || []).forEach(addAccuracyPoint);
+    updateAccuracyLabels();
+  }
 
-    function gpsOnce() {
-      if (!('geolocation' in navigator)) {
-        setGpsStatus('GPS non supportato dal browser', 'gps-bad');
-        return;
-      }
-      setGpsStatus('GPS: lettura…');
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude:lat, longitude:lon, accuracy:acc } = pos.coords;
-          gpsLayer.clearLayers();
-          const m = L.marker([lat, lon]).addTo(gpsLayer);
-          m.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}<br>Acc: ±${Math.round(acc)} m`);
-          if (Number.isFinite(acc)) L.circle([lat,lon], { radius: acc }).addTo(gpsLayer);
+  let accuracyLoaded = false;
+  map.on('overlayadd', (e) => {
+    if (e.layer === accuracyLayer && !accuracyLoaded) {
+      accuracyLoaded = true;
+      loadAccuracyPoints();
+    }
+    if (e.layer === accuracyLayer) {
+      updateAccuracyLabels();
+    }
+  });
+  map.on('zoomend', updateAccuracyLabels);
 
-          document.getElementById('lat').value = lat.toFixed(6);
-          document.getElementById('lon').value = lon.toFixed(6);
+  // =========================
+  // GPS
+  // =========================
+  function setGpsStatus(text, cls) {
+    const el = document.getElementById('gpsStatus');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('gps-ok','gps-bad');
+    if (cls) el.classList.add(cls);
+  }
 
-          map.setView([lat,lon], Math.max(map.getZoom(), 15));
-          setGpsStatus(`GPS ok • ±${Math.round(acc)} m`, 'gps-ok');
-        },
-        (err) => {
-          const reasons = {1:'Permesso negato',2:'Posizione non disponibile',3:'Timeout'};
-          setGpsStatus(`Errore GPS: ${reasons[err.code] || err.message}`, 'gps-bad');
-        },
-        { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+  function gpsOnce() {
+    if (!navigator.geolocation) {
+      setGpsStatus('GPS non supportato dal browser', 'gps-bad');
+      return;
+    }
+    setGpsStatus('GPS: lettura…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const acc = pos.coords.accuracy;
+        gpsLayer.clearLayers();
+        const m = L.marker([lat, lon]).addTo(gpsLayer);
+        m.bindPopup('Lat: ' + lat.toFixed(6) +
+          '<br>Lon: ' + lon.toFixed(6) +
+          '<br>Acc: ±' + Math.round(acc) + ' m');
+        if (Number.isFinite(acc)) {
+          L.circle([lat, lon], { radius: acc }).addTo(gpsLayer);
+        }
+        const latInput = document.getElementById('lat');
+        const lonInput = document.getElementById('lon');
+        if (latInput) latInput.value = lat.toFixed(6);
+        if (lonInput) lonInput.value = lon.toFixed(6);
+        map.setView([lat, lon], Math.max(map.getZoom(), 15));
+        setGpsStatus('GPS ok • ±' + Math.round(acc) + ' m', 'gps-ok');
+      },
+      (err) => {
+        const reasons = {1:'Permesso negato',2:'Posizione non disponibile',3:'Timeout'};
+        const msg = reasons[err.code] || err.message;
+        setGpsStatus('Errore GPS: ' + msg, 'gps-bad');
+      },
+      { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+    );
+  }
+
+  // =========================
+  // KMZ EXPORT
+  // =========================
+  function buildKmlFromPoints(points) {
+    const esc = (s) => escapeHtml(String(s || ''));
+    const placemarks = points.map((p) => {
+      return (
+        '        <Placemark>\n' +
+        '          <name>' + esc(p.name || '') + '</name>\n' +
+        '          <ExtendedData>\n' +
+        '            <Data name="source"><value>' + esc(p.src) + '</value></Data>\n' +
+        '          </ExtendedData>\n' +
+        '          <Point><coordinates>' + p.lon + ',' + p.lat + ',0</coordinates></Point>\n' +
+        '        </Placemark>\n'
       );
+    }).join('\n');
+
+    const kml =
+'<?xml version="1.0" encoding="UTF-8"?>\n' +
+'<kml xmlns="http://www.opengis.net/kml/2.2">\n' +
+'  <Document>\n' +
+'    <name>UNISS Soil Sample - Punti</name>\n' +
+'    <Style id="pt">\n' +
+'      <IconStyle>\n' +
+'        <scale>1.1</scale>\n' +
+'        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon>\n' +
+'      </IconStyle>\n' +
+'      <LabelStyle><scale>1.0</scale></LabelStyle>\n' +
+'    </Style>\n' +
+placemarks +
+'  </Document>\n' +
+'</kml>';
+    return kml;
+  }
+
+  async function exportAllKMZ() {
+    if (typeof JSZip === 'undefined') {
+      alert('JSZip non caricato: impossibile creare KMZ.');
+      return;
     }
-
-    // =========================
-    //  KMZ
-    // =========================
-    function buildKmlFromPoints(points){
-      const esc = (s) => escapeHtml(String(s ?? ''));
-      const placemarks = points.map(p => `
-        <Placemark>
-          <name>${esc(p.name || '')}</name>
-          <ExtendedData>
-            <Data name="source"><value>${esc(p.src)}</value></Data>
-          </ExtendedData>
-          <Point><coordinates>${p.lon},${p.lat},0</coordinates></Point>
-        </Placemark>
-      `).join('\n');
-
-      const kml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>UNISS Soil Sample - Punti</name>
-    <Style id="pt">
-      <IconStyle>
-        <scale>1.1</scale>
-        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon>
-      </IconStyle>
-      <LabelStyle><scale>1.0</scale></LabelStyle>
-    </Style>
-    ${placemarks}
-  </Document>
-</kml>`;
-      return kml;
-    }
-
-    async function exportAllKMZ(){
-      let local = [];
-      try{
-        const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-        local = arr.map(f => ({
-          name: f?.properties?.name || '',
-          lat:  Number(f?.geometry?.coordinates?.[1]),
-          lon:  Number(f?.geometry?.coordinates?.[0]),
+    let local = [];
+    try {
+      const arr = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      if (Array.isArray(arr)) {
+        local = arr.map((f) => ({
+          name: f && f.properties ? (f.properties.name || '') : '',
+          lat:  Number(f && f.geometry && f.geometry.coordinates ? f.geometry.coordinates[1] : NaN),
+          lon:  Number(f && f.geometry && f.geometry.coordinates ? f.geometry.coordinates[0] : NaN),
           src:  'local'
-        })).filter(p => isValidLatLon(p.lat, p.lon));
-      }catch(e){}
+        })).filter((p) => isValidLatLon(p.lat, p.lon));
+      }
+    } catch (e) {
+      console.warn('Errore lettura localStorage per export:', e);
+    }
 
-      let cloud = [];
-      try{
-        const { data, error } = await supabase
+    let cloud = [];
+    if (supabase) {
+      try {
+        const resp = await supabase
           .from('points')
           .select('name,lat,lon,photo_url')
           .order('created_at',{ascending:false})
           .limit(5000);
-        if (!error && data) {
-          cloud = data.map(r => ({
-            name: r?.name || '',
-            lat: Number(r?.lat),
-            lon: Number(r?.lon),
+        if (!resp.error && Array.isArray(resp.data)) {
+          cloud = resp.data.map((r) => ({
+            name: r && r.name ? r.name : '',
+            lat: Number(r && r.lat),
+            lon: Number(r && r.lon),
             src: 'cloud'
-          })).filter(p => isValidLatLon(p.lat, p.lon));
+          })).filter((p) => isValidLatLon(p.lat, p.lon));
         }
-      }catch(e){}
-
-      const all = [...local, ...cloud];
-      if (!all.length) { alert('Nessun punto da esportare.'); return; }
-
-      const kml = buildKmlFromPoints(all);
-      const zip = new JSZip();
-      zip.file('doc.kml', kml);
-
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'points.kmz'; a.click();
-      URL.revokeObjectURL(url);
+      } catch (e) {
+        console.warn('Errore lettura cloud per export:', e);
+      }
     }
 
-    // =========================
-    //  MODAL ELENCO PUNTI
-    // =========================
-    const pointsModal = document.getElementById('pointsModal');
-    const pointsList  = document.getElementById('pointsList');
-    const pointsSearch= document.getElementById('pointsSearch');
+    const all = local.concat(cloud);
+    if (!all.length) {
+      alert('Nessun punto da esportare.');
+      return;
+    }
 
-    function openPointsModal(){
-      renderPointsList();
-      pointsModal.style.display = 'flex';
+    const kml = buildKmlFromPoints(all);
+    const zip = new JSZip();
+    zip.file('doc.kml', kml);
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'points.kmz';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // =========================
+  // MODAL ELENCO PUNTI
+  // =========================
+  const pointsModal = document.getElementById('pointsModal');
+  const pointsList  = document.getElementById('pointsList');
+  const pointsSearch= document.getElementById('pointsSearch');
+
+  function renderPointsList() {
+    if (!pointsList) return;
+    const items = Array.from(cloudIndex.values()).map((rec) => ({
+      id: rec.marker.options.customId,
+      name: rec.name || '',
+      lat: Number(rec.lat),
+      lon: Number(rec.lon),
+      photo_url: rec.photo_url || ''
+    }));
+    const q = (pointsSearch && pointsSearch.value ? pointsSearch.value : '').toLowerCase().trim();
+    const filt = q ? items.filter((it) => it.name.toLowerCase().includes(q)) : items;
+    if (!filt.length) {
+      pointsList.innerHTML = '<div class="note" style="padding:6px 2px;">Nessun punto da mostrare.</div>';
+      return;
+    }
+    const htmlParts = [];
+    filt.forEach((it) => {
+      const imgUrl = it.photo_url ? resolvePhotoUrl(it.photo_url) : '';
+      htmlParts.push(
+        '<div class="point-item">' +
+          '<div>' +
+            '<div><strong>' + escapeHtml(it.name || "(senza nome)") + '</strong></div>' +
+            '<div class="meta">Lat: ' + it.lat.toFixed(6) + ' • Lon: ' + it.lon.toFixed(6) + '</div>' +
+            (imgUrl ? '<img src="' + imgUrl + '" alt="foto" style="margin-top:6px;max-width:140px;max-height:100px;border-radius:8px;display:block;">' : '') +
+          '</div>' +
+          '<button class="go" data-id="' + escapeHtml(it.id) + '" title="Zoom al punto">Vai</button>' +
+        '</div>'
+      );
+    });
+    pointsList.innerHTML = htmlParts.join('');
+  }
+
+  function openPointsModal() {
+    if (!pointsModal) return;
+    renderPointsList();
+    pointsModal.style.display = 'flex';
+    if (pointsSearch) {
       pointsSearch.value = '';
       pointsSearch.focus();
     }
-    function closePointsModal(){
-      pointsModal.style.display = 'none';
-    }
+  }
 
-    function renderPointsList(){
-      const items = Array.from(cloudIndex.values())
-        .map(({name, lat, lon, marker, photo_url}) => ({
-          id: marker.options.customId,
-          name: name || '',
-          lat: Number(lat),
-          lon: Number(lon),
-          photo_url: photo_url || ''
-        }));
+  function closePointsModal() {
+    if (!pointsModal) return;
+    pointsModal.style.display = 'none';
+  }
 
-      const q = (pointsSearch.value || '').toLowerCase().trim();
-      const filt = q ? items.filter(it => it.name.toLowerCase().includes(q)) : items;
-
-      if (!filt.length){
-        pointsList.innerHTML = `<div class="note" style="padding:6px 2px;">Nessun punto da mostrare.</div>`;
-        return;
-      }
-
-      pointsList.innerHTML = filt.map(it => `
-        <div class="point-item">
-          <div>
-            <div><strong>${escapeHtml(it.name || '(senza nome)')}</strong></div>
-            <div class="meta">Lat: ${it.lat.toFixed(6)} • Lon: ${it.lon.toFixed(6)}</div>
-            ${ (it.photo_url && resolvePhotoUrl(it.photo_url)) ? `<img src="${resolvePhotoUrl(it.photo_url)}" alt="foto" style="margin-top:6px;max-width:140px;max-height:100px;border-radius:8px;display:block;">` : ''}
-          </div>
-          <button class="go" data-id="${it.id}" title="Zoom al punto">Vai</button>
-        </div>
-      `).join('');
-    }
-
-    function zoomToPointById(id){
-      const rec = cloudIndex.get(id);
-      if (!rec) return;
-      const { marker, lat, lon } = rec;
-      map.setView([lat, lon], Math.max(map.getZoom(), 17), { animate: true });
+  function zoomToPointById(id) {
+    const rec = cloudIndex.get(id);
+    if (!rec) return;
+    const lat = rec.lat;
+    const lon = rec.lon;
+    const marker = rec.marker;
+    map.setView([lat, lon], Math.max(map.getZoom(), 17), { animate:true });
+    if (marker && typeof marker.openPopup === 'function') {
       if (marker.getPopup()) marker.openPopup();
-      else marker.bindPopup(`Lat: ${lat.toFixed(6)}<br>Lon: ${lon.toFixed(6)}`).openPopup();
+      else marker.bindPopup('Lat: ' + lat.toFixed(6) + '<br>Lon: ' + lon.toFixed(6)).openPopup();
     }
+  }
 
-    // =========================
-    //  EVENTI
-    // =========================
-    document.getElementById('addBtn').addEventListener('click', async () => {
-      const name = document.getElementById('name').value.trim();
-      const land_cover = String(document.getElementById('land_cover').value || '').trim(); // <<< CORRETTO
-      const lat = parseFloat(document.getElementById('lat').value.replace(',', '.'));
-      const lon = parseFloat(document.getElementById('lon').value.replace(',', '.'));
-      const saveCloud = document.getElementById('saveCloud').checked;
+  // =========================
+  // EVENTI UI
+  // =========================
+  const addBtn = document.getElementById('addBtn');
+  const exportKmzBtn = document.getElementById('exportKmzBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const gpsOnceBtn = document.getElementById('gpsOnceBtn');
+  const listBtn = document.getElementById('listBtn');
+  const closeModalBtn = document.getElementById('closeModalBtn');
+  const latInput = document.getElementById('lat');
+  const lonInput = document.getElementById('lon');
+  const landCoverInput = document.getElementById('land_cover');
+  const nameInput = document.getElementById('name');
+  const saveCloudInput = document.getElementById('saveCloud');
+  const photoInput = document.getElementById('photoFile');
+
+  if (addBtn) {
+    addBtn.addEventListener('click', async () => {
+      const name = nameInput ? nameInput.value.trim() : '';
+      const land_cover = landCoverInput ? String(landCoverInput.value || '').trim() : '';
+      const lat = latInput ? parseFloat(latInput.value.replace(',', '.')) : NaN;
+      const lon = lonInput ? parseFloat(lonInput.value.replace(',', '.')) : NaN;
+      const saveCloud = saveCloudInput ? !!saveCloudInput.checked : false;
 
       if (!isValidLatLon(lat, lon)) {
         alert('Lat/Lon non validi. Esempio lat 40.726, lon 9.000');
         return;
       }
 
-      if (saveCloud) {
-  let photoPath = null;
-  const fileInput = document.getElementById('photoFile');
-  const file = fileInput && fileInput.files ? fileInput.files[0] : null;
-  if (file) {
-    try {
-      const resized = await resizeAndCompress(file, 1/3, 0.85);
-      photoPath = await uploadPhotoToSupabase(resized, name);
-    } catch (e) { console.warn('Upload foto fallito:', e); }
-  }
-  const ok = await insertSupabasePoint(name, lat, lon, land_cover, photoPath);
-  if (!ok) {
-    alert('Errore salvataggio su cloud');
-  } else {
-    loadSupabasePoints();
-    showToast('Aggiunto ✓ (cloud)');
-  }
-} else {
-  showToast('Aggiunto ✓');
-}
+      if (saveCloud && supabase) {
+        let photoPath = null;
+        const file = (photoInput && photoInput.files && photoInput.files[0]) ? photoInput.files[0] : null;
+        if (file) {
+          try {
+            const resized = await resizeAndCompress(file, 1/3, 0.85);
+            photoPath = await uploadPhotoToSupabase(resized, name || 'punto');
+          } catch (e) {
+            console.warn('Upload foto fallito:', e);
+          }
+        }
+        const ok = await insertSupabasePoint(name, lat, lon, land_cover, photoPath);
+        if (!ok) {
+          alert('Errore salvataggio su cloud');
+        } else {
+          await loadSupabasePoints();
+          showToast('Aggiunto ✓ (cloud)');
+        }
+      } else if (saveCloud && !supabase) {
+        alert('Supabase non inizializzato: impossibile salvare su cloud.');
+        addLocalPoint(name, lat, lon, true);
+        showToast('Aggiunto ✓ (solo locale)');
+      } else {
+        addLocalPoint(name, lat, lon, true);
+        showToast('Aggiunto ✓');
+      }
     });
+  }
 
-    document.getElementById('exportKmzBtn').addEventListener('click', exportAllKMZ);
+  if (exportKmzBtn) {
+    exportKmzBtn.addEventListener('click', exportAllKMZ);
+  }
 
-    document.getElementById('clearBtn').addEventListener('click', () => {
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
       if (confirm('Cancellare i punti salvati localmente?')) {
         localStorage.removeItem(LS_KEY);
         localLayer.clearLayers();
       }
     });
+  }
 
-    document.getElementById('gpsOnceBtn').addEventListener('click', gpsOnce);
+  if (gpsOnceBtn) {
+    gpsOnceBtn.addEventListener('click', gpsOnce);
+  }
 
-    map.on('click', (e) => {
-      document.getElementById('lat').value = e.latlng.lat.toFixed(6);
-      document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+  map.on('click', (e) => {
+    if (latInput) latInput.value = e.latlng.lat.toFixed(6);
+    if (lonInput) lonInput.value = e.latlng.lng.toFixed(6);
+  });
+
+  if (listBtn) {
+    listBtn.addEventListener('click', openPointsModal);
+  }
+  if (closeModalBtn) {
+    closeModalBtn.addEventListener('click', closePointsModal);
+  }
+  if (pointsModal) {
+    pointsModal.addEventListener('click', (e) => {
+      if (e.target === pointsModal) closePointsModal();
     });
-
-    document.getElementById('listBtn').addEventListener('click', openPointsModal);
-    document.getElementById('closeModalBtn').addEventListener('click', closePointsModal);
-    document.getElementById('pointsModal').addEventListener('click', (e) => {
-      if (e.target === document.getElementById('pointsModal')) closePointsModal();
-    });
+  }
+  if (pointsSearch) {
     pointsSearch.addEventListener('input', renderPointsList);
+  }
+  if (pointsList) {
     pointsList.addEventListener('click', (e) => {
       const btn = e.target.closest('button.go');
       if (!btn) return;
       const id = btn.getAttribute('data-id');
       zoomToPointById(id);
     });
+  }
 
-    // =========================
-    //  AVVIO
-    // =========================
-    fetch(GEOJSON_URL)
-      .then(r => { if (!r.ok) throw new Error('GeoJSON non trovato'); return r.json(); })
-      .then(j => seedLayer.addData(j))
-      .catch(()=>{});
+  // =========================
+  // AVVIO
+  // =========================
+  fetch(GEOJSON_URL)
+    .then((r) => { if (!r.ok) throw new Error('GeoJSON non trovato'); return r.json(); })
+    .then((j) => { seedLayer.addData(j); })
+    .catch(() => {});
 
-    loadLocalPoints();
-    loadSupabasePoints();
+  loadLocalPoints();
+  loadSupabasePoints();
 
-    // =========================
-    //  TEST
-    // =========================
-    try {
-      console.assert(typeof L !== 'undefined', 'Leaflet presente');
-      console.assert(map instanceof L.Map, 'Mappa inizializzata');
-      console.assert(typeof supabase !== 'undefined', 'Supabase client presente');
-      console.assert(typeof loadAccuracyPoints === 'function', 'Funzione loadAccuracyPoints definita');
-      console.assert(typeof updateAccuracyLabels === 'function', 'Funzione updateAccuracyLabels definita');
-    } catch (e) {
-      console.warn('Self-test warning:', e);
-    }
+  console.log('SoilSample inizializzato');
+});
+</script>
 
-    window.addEventListener('error', function(e){
-      console.warn('JS error:', e.message, e.filename + ':' + e.lineno);
-    });
-  </script>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
