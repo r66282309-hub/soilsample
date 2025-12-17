@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Uniss Soil WebGIS</title>
 
-  <!-- Leaflet CSS/JS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet CSS/JS (CDN stabile) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <!-- Leaflet.draw per selezione spaziale -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
@@ -16,8 +16,8 @@
   <!-- Esri Leaflet -->
   <script src="https://unpkg.com/esri-leaflet@3/dist/esri-leaflet.js"></script>
 
-  <!-- Supabase JS v2 -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Supabase JS v2 (UMD, come nel soilsample che funziona) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <style>
     :root{
@@ -277,7 +277,6 @@
         </div>
         <label for="classField">Campo per la classificazione</label>
         <select id="classField">
-          <!-- aggiungi qui altri campi se li hai in "points" -->
           <option value="land_cover" selected>Land Cover</option>
           <option value="name">Nome</option>
           <option value="progetto">Progetto</option>
@@ -366,19 +365,81 @@
   </div>
 
   <script>
+  window.addEventListener('load', () => {
     // =========================
     //  CONFIG
     // =========================
     const START_VIEW = [40.0, 9.0];
     const START_ZOOM = 8;
 
-    // Supabase
     const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
     const SUPABASE_ANON_KEY =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let supabase = null;
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      try {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } catch (e) {
+        console.error('Errore creazione Supabase client:', e);
+        supabase = null;
+      }
+    } else {
+      console.warn('Supabase SDK non trovata: punti cloud/legacy disabilitati.');
+    }
 
     const ACCURACY_TABLE = 'accuracy_points';
+
+    if (typeof L === 'undefined') {
+      alert('Errore: Leaflet non caricato (L undefined).');
+      return;
+    }
+
+    // =========================
+    //  UTILITY
+    // =========================
+    function escapeHtml(s){
+      return String(s)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#039;");
+    }
+
+    function isValidLatLon(lat, lon){
+      return Number.isFinite(lat) && Number.isFinite(lon) &&
+             lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    function buildId(name, lat, lon){
+      return `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}|${(name||'').trim().slice(0,80)}`;
+    }
+
+    function getAny(obj, keys){
+      if (!obj) return undefined;
+      for (const k of keys){
+        if (k in obj && obj[k] != null && obj[k] !== '') return obj[k];
+        const low = k.toLowerCase();
+        for (const kk of Object.keys(obj)){
+          if (kk.toLowerCase() === low && obj[kk] != null && obj[kk] !== '') return obj[kk];
+        }
+      }
+      return undefined;
+    }
+
+    function resolvePhotoUrl(photo_url){
+      const raw = String(photo_url || '').trim();
+      if (!raw || !supabase) return '';
+      if (/^https?:\/\//i.test(raw)) return raw;
+      try{
+        const res = supabase.storage.from('soil_photos').getPublicUrl(raw);
+        return res && res.data && res.data.publicUrl ? res.data.publicUrl : '';
+      } catch(e){
+        console.warn('Errore resolvePhotoUrl:', e);
+        return '';
+      }
+    }
 
     // =========================
     //  MAPPA
@@ -402,25 +463,17 @@
       maxZoom: 20, attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     });
 
-    // Layer MAPPALI da ArcGIS FeatureServer (cadastrale)
-    // Visibile solo da zoom xx in su (minZoom)
     const MAPPALI_MIN_ZOOM = 14;
 
     const mappaliLayer = L.esri.featureLayer({
       url: 'https://services-eu1.arcgis.com/6uZFwg9yNy5wD4RR/arcgis/rest/services/Mappali/FeatureServer/0',
       minZoom: MAPPALI_MIN_ZOOM,
-      style: function (feature) {
-        return {
-          color: '#ff0000',
-          weight: 1,
-          fillOpacity: 0
-        };
+      style: function () {
+        return { color: '#ff0000', weight: 1, fillOpacity: 0 };
       },
       onEachFeature: function (feature, layer) {
         const attrs = feature.properties || feature.attributes || {};
-        // Cambia questi nomi in base al campo giusto del mappale
         const label = attrs.LABEL || attrs.NUMERO || attrs.ID || '';
-
         if (label) {
           layer.bindTooltip(String(label), {
             permanent: true,
@@ -431,8 +484,8 @@
       }
     });
 
-    const cloudLayer = L.layerGroup().addTo(map);   // punti da tabella "points"
-    const accuracyLayer = L.layerGroup();           // punti da "accuracy_points"
+    const cloudLayer    = L.layerGroup().addTo(map);
+    const accuracyLayer = L.layerGroup();
 
     const CLOUD_LABEL_ZOOM = 14;
     const ACC_LABEL_ZOOM   = 14;
@@ -451,15 +504,14 @@
     };
     L.control.layers(baseLayers, overlays, { position:'topright', collapsed:false }).addTo(map);
 
-    // modalità corrente del draw:
-    // null | 'selection_polygon' | 'measure_line' | 'measure_polygon'
+    // stato per draw
     let currentDrawMode = null;
 
     // =========================
-    //  CLASSIFICAZIONE (cloud points)
+    //  CLASSIFICAZIONE (points)
     // =========================
     let classificationEnabled = true;
-    let currentClassField = 'land_cover'; // può cambiare da dropdown
+    let currentClassField = 'land_cover';
 
     const PALETTE = [
       '#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd',
@@ -468,7 +520,7 @@
       '#3182bd','#e6550d','#31a354','#756bb1','#636363',
       '#9c9ede','#b5cf6b','#e7ba52','#ad494a','#9c9ede'
     ];
-    const categoryColors = new Map(); // categoria -> colore
+    const categoryColors = new Map();
 
     function assignColorForCategory(cat){
       const key = String(cat || '').trim() || '(n/d)';
@@ -490,53 +542,11 @@
     }
 
     // =========================
-    //  INDICI E UTILITY
+    //  INDICI
     // =========================
-    const cloudIndex = new Map();    // id -> { marker, ...props (points) }
-    const accuracyIndex = new Map(); // id -> { marker, ...props (accuracy_points) }
-
-    let selectedIds = new Set(); // id dei punti LEGACY selezionati
-
-    function escapeHtml(s){
-      return String(s)
-        .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
-        .replaceAll('"','&quot;')
-        .replaceAll("'","&#039;");
-    }
-
-    function isValidLatLon(lat, lon){
-      return Number.isFinite(lat) && Number.isFinite(lon) &&
-             lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
-    }
-
-    function buildId(name, lat, lon){
-      return `${Number(lat).toFixed(6)},${Number(lon).toFixed(6)}|${(name||'').trim().slice(0,80)}`;
-    }
-
-    function resolvePhotoUrl(photo_url){
-      const raw = String(photo_url || '').trim();
-      if (!raw) return '';
-      if (/^https?:\/\//i.test(raw)) return raw;
-      try{
-        const { data } = supabase.storage.from('soil_photos').getPublicUrl(raw);
-        return data?.publicUrl || '';
-      } catch(e){
-        return '';
-      }
-    }
-
-    function getAny(obj, keys){
-      for (const k of keys){
-        if (k in obj && obj[k] != null && obj[k] !== '') return obj[k];
-        const low = k.toLowerCase();
-        for (const kk of Object.keys(obj)){
-          if (kk.toLowerCase() === low) return obj[kk];
-        }
-      }
-      return undefined;
-    }
+    const cloudIndex    = new Map();
+    const accuracyIndex = new Map();
+    let selectedIds     = new Set();
 
     // =========================
     //  CLOUD POINTS (points)
@@ -550,49 +560,52 @@
       const land_cover = row.land_cover || '';
       const photo_url  = row.photo_url || '';
 
-      const props = {
-        ...row,
-        name,
-        lat,
-        lon,
-        land_cover,
-        photo_url
-      };
+      const props = { ...row, name, lat, lon, land_cover, photo_url };
 
       const marker = L.circleMarker([lat,lon], styleForPoint(props)).addTo(cloudLayer);
       marker.options._labelName = name;
       marker.options._props = props;
 
       const img = resolvePhotoUrl(photo_url);
-      const imgHtml = img ? `<div style="margin-top:6px;"><img src="${img}" alt="foto" style="max-width:220px;max-height:160px;border-radius:8px;display:block;"></div>` : '';
-      const lcHtml  = land_cover ? `<div style="margin-top:6px; font-size:12px"><b>Land cover:</b> ${escapeHtml(land_cover)}</div>` : '';
+      const imgHtml = img
+        ? `<div style="margin-top:6px;"><img src="${img}" alt="foto" style="max-width:220px;max-height:160px;border-radius:8px;display:block;"></div>`
+        : '';
+      const lcHtml  = land_cover
+        ? `<div style="margin-top:6px; font-size:12px"><b>Land cover:</b> ${escapeHtml(land_cover)}</div>`
+        : '';
 
       marker.bindPopup(`<b>${escapeHtml(name || '')}</b>${lcHtml}${imgHtml}`);
 
       const id = buildId(name, lat, lon);
       marker.options.customId = id;
-
       cloudIndex.set(id, { marker, ...props });
     }
 
     async function loadSupabasePoints(){
-      const { data, error } = await supabase
-        .from('points')
-        .select('name,lat,lon,photo_url,land_cover,progetto')
-        .order('created_at', { ascending:false })
-        .limit(5000);
-
+      if (!supabase) {
+        console.warn('Supabase non inizializzato: punti cloud non caricati.');
+        return;
+      }
+      let resp;
+      try {
+        resp = await supabase
+          .from('points')
+          .select('name,lat,lon,photo_url,land_cover,progetto')
+          .order('created_at', { ascending:false })
+          .limit(5000);
+      } catch (e) {
+        console.error('Errore loadSupabasePoints:', e);
+        return;
+      }
+      const { data, error } = resp;
       if (error){
         console.warn('Supabase SELECT points', error.message);
         return;
       }
-
       cloudLayer.clearLayers();
       cloudIndex.clear();
       selectedIds = new Set();
-
       (data || []).forEach(addCloudPoint);
-
       applyClassification();
       updateCloudLabels();
       if (pointsModal.style.display === 'flex') renderPointsList();
@@ -601,8 +614,7 @@
     function applyClassification(){
       cloudLayer.eachLayer((m)=>{
         const props = m.options._props || {};
-        let baseStyle = styleForPoint(props);
-        m.setStyle(baseStyle);
+        m.setStyle(styleForPoint(props));
       });
       renderLegend();
       updateDashboard();
@@ -640,22 +652,10 @@
       }).addTo(accuracyLayer);
 
       marker.options._labelName = name;
-
       const id = buildId(name, lat, lon);
       marker.options.customId = id;
 
-      const props = {
-        ...row,
-        name,
-        lat,
-        lon,
-        land_cover,
-        codice,
-        gps,
-        acc1,
-        acc2,
-        degr
-      };
+      const props = { ...row, name, lat, lon, land_cover, codice, gps, acc1, acc2, degr };
       accuracyIndex.set(id, { marker, ...props });
 
       const htmlParts = [];
@@ -693,10 +693,19 @@
     }
 
     async function loadAccuracyPoints(){
-      const { data, error } = await supabase
-        .from(ACCURACY_TABLE)
-        .select('*')
-        .limit(20000);
+      if (!supabase) {
+        console.warn('Supabase non inizializzato: punti legacy non caricati.');
+        return;
+      }
+      let resp;
+      try {
+        resp = await supabase.from(ACCURACY_TABLE).select('*').limit(20000);
+      } catch (e) {
+        console.error('Errore loadAccuracyPoints:', e);
+        alert('Errore nel leggere la tabella di accuratezza.');
+        return;
+      }
+      const { data, error } = resp;
       if (error){
         console.warn('Supabase SELECT accuracy', error.message);
         alert('Errore nel leggere la tabella di accuratezza.');
@@ -709,7 +718,6 @@
       updateAccuracyLabels();
     }
 
-    // overlayadd: gestisco sia legacy sia catasto
     map.on('overlayadd', (e) => {
       if (e.layer === accuracyLayer && !accuracyLoaded){
         loadAccuracyPoints();
@@ -717,8 +725,6 @@
       if (e.layer === accuracyLayer){
         updateAccuracyLabels();
       }
-
-      // messaggio per i mappali se lo zoom è troppo basso
       if (e.layer === mappaliLayer && map.getZoom() < MAPPALI_MIN_ZOOM){
         L.popup({ closeButton: false, offset: [0, -10] })
           .setLatLng(map.getCenter())
@@ -728,11 +734,11 @@
     });
 
     // =========================
-    //  MODAL ELENCO PUNTI (cloud)
+    //  MODAL CLOUD
     // =========================
-    const pointsModal = document.getElementById('pointsModal');
-    const pointsList  = document.getElementById('pointsList');
-    const pointsSearch= document.getElementById('pointsSearch');
+    const pointsModal  = document.getElementById('pointsModal');
+    const pointsList   = document.getElementById('pointsList');
+    const pointsSearch = document.getElementById('pointsSearch');
 
     function openPointsModal(){
       renderPointsList();
@@ -801,7 +807,7 @@
 
     const ListControl = L.Control.extend({
       options: { position: 'topleft' },
-      onAdd: function(map){
+      onAdd: function(){
         const div = L.DomUtil.create('div', 'leaflet-bar');
         const btn = L.DomUtil.create('button', 'list-control-btn', div);
         btn.type = 'button';
@@ -814,11 +820,11 @@
     });
 
     // =========================
-    //  MODAL ELENCO PUNTI LEGACY
+    //  MODAL LEGACY
     // =========================
-    const accuracyModal = document.getElementById('accuracyModal');
-    const accuracyListEl = document.getElementById('accuracyList');
-    const accuracySearchEl = document.getElementById('accuracySearch');
+    const accuracyModal   = document.getElementById('accuracyModal');
+    const accuracyListEl  = document.getElementById('accuracyList');
+    const accuracySearchEl= document.getElementById('accuracySearch');
 
     async function openAccuracyModal(){
       if (!accuracyLoaded){
@@ -831,7 +837,6 @@
         accuracySearchEl.focus();
       }
     }
-
     function closeAccuracyModal(){
       accuracyModal.style.display = 'none';
     }
@@ -898,8 +903,7 @@
         return;
       }
       let kml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-      kml += `<kml xmlns="http://www.opengis.net/kml/2.2">\n`;
-      kml += `<Document>\n<name>accuracy_points</name>\n`;
+      kml += `<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>accuracy_points</name>\n`;
       records.forEach(rec => {
          const name = rec.name || rec.codice || '';
          const descParts = [];
@@ -927,16 +931,12 @@
       URL.revokeObjectURL(url);
     }
 
-    document.getElementById('btnLegacyList')?.addEventListener('click', () => {
-      openAccuracyModal();
-    });
-
+    document.getElementById('btnLegacyList')?.addEventListener('click', openAccuracyModal);
     document.getElementById('closeAccuracyModalBtn')?.addEventListener('click', closeAccuracyModal);
     accuracyModal.addEventListener('click', (e)=>{
       if (e.target === accuracyModal) closeAccuracyModal();
     });
     accuracySearchEl?.addEventListener('input', renderAccuracyList);
-
     document.getElementById('accSelectAll')?.addEventListener('click', ()=>{
       accuracyListEl?.querySelectorAll('.acc-check').forEach(ch => ch.checked = true);
     });
@@ -944,7 +944,6 @@
       accuracyListEl?.querySelectorAll('.acc-check').forEach(ch => ch.checked = false);
     });
     document.getElementById('accExportKML')?.addEventListener('click', exportAccuracyKML);
-
     accuracyListEl?.addEventListener('click', (e)=>{
       const btn = e.target.closest('button.go');
       if (!btn) return;
@@ -955,13 +954,14 @@
       rec.marker.openPopup();
     });
 
-    // Controllo misura in alto a destra, sotto al layer control
+    // =========================
+    //  CONTROLLO LISTA + MISURA
+    // =========================
     const MeasureControl = L.Control.extend({
       options: { position: 'topright' },
-      onAdd: function(map){
+      onAdd: function(){
         const container = L.DomUtil.create('div', 'leaflet-bar');
         const panel = L.DomUtil.create('div', 'measure-panel', container);
-
         panel.innerHTML = `
           <h3>Strumento misura</h3>
           <label for="measureLengthUnit">Unità lunghezza</label>
@@ -970,17 +970,14 @@
             <option value="km">Chilometri</option>
           </select>
           <button id="btnMeasureDistance" type="button">Misura distanza</button>
-
           <label for="measureAreaUnit">Unità area</label>
           <select id="measureAreaUnit">
             <option value="ha">Ettari</option>
             <option value="km2">km²</option>
           </select>
           <button id="btnMeasureArea" type="button">Misura area</button>
-
           <p class="small" id="measureResult">Nessuna misura</p>
         `;
-
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
         return container;
@@ -1038,7 +1035,7 @@
     });
 
     // =========================
-    //  SELEZIONE & EXPORT (legacy)
+    //  SELEZIONE & EXPORT LEGACY
     // =========================
     function updateSelectionInfo(){
       const el = document.getElementById('selectionInfo');
@@ -1049,20 +1046,16 @@
 
     function clearSelection(){
       selectedIds = new Set();
-      accuracyLayer.eachLayer(m => {
-        if (m.setStyle) m.setStyle({ radius: 6 });
-      });
+      accuracyLayer.eachLayer(m => { if (m.setStyle) m.setStyle({ radius: 6 }); });
       updateSelectionInfo();
     }
 
     function selectByLandCover(){
       const input = document.getElementById('attrLandCover');
       if (!input) return;
-
       const val = input.value.trim().toLowerCase();
       clearSelection();
       if (!val) return;
-
       let count = 0;
       accuracyIndex.forEach((rec, id) => {
         const lc = String(rec.land_cover || '').trim().toLowerCase();
@@ -1072,7 +1065,6 @@
           count++;
         }
       });
-
       updateSelectionInfo();
       if (!count){
         alert('Nessun punto legacy con questo valore di land_cover.');
@@ -1101,10 +1093,7 @@
         type:'FeatureCollection',
         features: arr.map(rec => ({
           type:'Feature',
-          geometry:{
-            type:'Point',
-            coordinates:[rec.lon, rec.lat]
-          },
+          geometry:{ type:'Point', coordinates:[rec.lon, rec.lat] },
           properties:{
             name:rec.name || '',
             land_cover:rec.land_cover || '',
@@ -1170,66 +1159,50 @@
     document.getElementById('btnExportCSV')?.addEventListener('click', exportSelectedAsCSV);
 
     // =========================
-    //  MISURE – funzioni
+    //  MISURE
     // =========================
     function getMeasureResultEl(){
       return document.getElementById('measureResult');
     }
-
     function formatLength(m){
       const unitSel = document.getElementById('measureLengthUnit');
       const unit = unitSel ? unitSel.value : 'm';
-      if (unit === 'km'){
-        return (m / 1000).toFixed(2) + ' km';
-      }
-      return m.toFixed(1) + ' m';
+      return unit === 'km' ? (m/1000).toFixed(2) + ' km' : m.toFixed(1) + ' m';
     }
-
     function formatArea(m2){
       const unitSel = document.getElementById('measureAreaUnit');
       const unit = unitSel ? unitSel.value : 'ha';
-      if (unit === 'km2'){
-        return (m2 / 1e6).toFixed(3) + ' km²';
-      }
-      // default: ettari
-      return (m2 / 10000).toFixed(2) + ' ha';
+      return unit === 'km2' ? (m2/1e6).toFixed(3) + ' km²' : (m2/10000).toFixed(2) + ' ha';
     }
-
     function showLengthResult(m){
       const el = getMeasureResultEl();
-      if (!el) return;
-      el.textContent = 'Lunghezza: ' + formatLength(m);
+      if (el) el.textContent = 'Lunghezza: ' + formatLength(m);
     }
-
     function showAreaResult(m2){
       const el = getMeasureResultEl();
-      if (!el) return;
-      el.textContent = 'Area: ' + formatArea(m2);
+      if (el) el.textContent = 'Area: ' + formatArea(m2);
     }
 
-    // listener globale per i bottoni del pannello misura (creato come controllo Leaflet)
     document.addEventListener('click', (e)=>{
       const btnDist = e.target.closest('#btnMeasureDistance');
       const btnArea = e.target.closest('#btnMeasureArea');
-
       if (btnDist){
         currentDrawMode = 'measure_line';
         const el = getMeasureResultEl();
         if (el) el.textContent = 'Disegna una linea sulla mappa…';
         const toolbar = drawControl._toolbars?.draw;
-        if (toolbar && toolbar._modes && toolbar._modes.polyline){
+        if (toolbar?. _modes?.polyline){
           toolbar._modes.polyline.handler.enable();
         } else {
           alert('Strumento linea non disponibile.');
         }
       }
-
       if (btnArea){
         currentDrawMode = 'measure_polygon';
         const el = getMeasureResultEl();
         if (el) el.textContent = 'Disegna un poligono sulla mappa…';
         const toolbar = drawControl._toolbars?.draw;
-        if (toolbar && toolbar._modes && toolbar._modes.polygon){
+        if (toolbar?. _modes?.polygon){
           toolbar._modes.polygon.handler.enable();
         } else {
           alert('Strumento poligono non disponibile.');
@@ -1238,10 +1211,9 @@
     });
 
     // =========================
-    //  SELEZIONE SPAZIALE (poligono) - legacy
+    //  DRAW & SELEZIONE SPAZIALE
     // =========================
     const drawnItems = new L.FeatureGroup().addTo(map);
-
     const drawControl = new L.Control.Draw({
       position:'topleft',
       draw:{
@@ -1249,9 +1221,7 @@
         circle:false,
         circlemarker:false,
         rectangle:false,
-        polyline:{
-          shapeOptions:{ color:'#0f766e' }
-        },
+        polyline:{ shapeOptions:{ color:'#0f766e' } },
         polygon:{
           allowIntersection:false,
           showArea:true,
@@ -1267,7 +1237,6 @@
     map.addControl(drawControl);
 
     function pointInRing(point, ring){
-      // point: [lng, lat]
       let inside = false;
       for (let i=0, j=ring.length-1; i<ring.length; j=i++){
         const xi = ring[i][0], yi = ring[i][1];
@@ -1281,13 +1250,12 @@
     }
 
     function isPointInPolygon(pt, geom){
-      // pt: [lng, lat], geom: GeoJSON geometry (Polygon/MultiPolygon)
       if (!geom) return false;
       if (geom.type === 'Polygon'){
         const [outer, ...holes] = geom.coordinates;
         if (!pointInRing(pt, outer)) return false;
         for (const h of holes){
-          if (pointInRing(pt, h)) return false; // dentro un "buco"
+          if (pointInRing(pt, h)) return false;
         }
         return true;
       }
@@ -1312,8 +1280,8 @@
       }
       let count = 0;
       accuracyIndex.forEach((rec, id) => {
-        const pt = [Number(rec.lon), Number(rec.lat)];
         if (!isValidLatLon(rec.lat, rec.lon)) return;
+        const pt = [Number(rec.lon), Number(rec.lat)];
         if (isPointInPolygon(pt, geom)){
           selectedIds.add(id);
           rec.marker.setStyle({ radius: 9 });
@@ -1340,7 +1308,6 @@
       const rings = layer.getLatLngs();
       const outer = Array.isArray(rings[0]) ? rings[0] : rings;
       if (!outer || outer.length < 3) return 0;
-
       const pts = outer.map(ll => map.options.crs.project(ll));
       let area = 0;
       for (let i = 0, j = pts.length - 1; i < pts.length; j = i++){
@@ -1352,28 +1319,18 @@
     map.on(L.Draw.Event.CREATED, function(e){
       drawnItems.clearLayers();
       drawnItems.addLayer(e.layer);
-
       if (currentDrawMode === 'selection_polygon'){
         const geom = e.layer.toGeoJSON().geometry;
         spatialSelectWithPolygon(geom);
-
       } else if (currentDrawMode === 'measure_line'){
         const lenMeters = computeLineLength(e.layer);
         showLengthResult(lenMeters);
-
-        const popupText = 'Lunghezza: <b>' + formatLength(lenMeters) + '</b>';
-        e.layer.bindPopup(popupText);
-        e.layer.openPopup();
-
+        e.layer.bindPopup('Lunghezza: <b>' + formatLength(lenMeters) + '</b>').openPopup();
       } else if (currentDrawMode === 'measure_polygon'){
         const areaM2 = computePolygonArea(e.layer);
         showAreaResult(areaM2);
-
-        const popupText = 'Area: <b>' + formatArea(areaM2) + '</b>';
-        e.layer.bindPopup(popupText);
-        e.layer.openPopup();
+        e.layer.bindPopup('Area: <b>' + formatArea(areaM2) + '</b>').openPopup();
       }
-
       currentDrawMode = null;
     });
 
@@ -1388,24 +1345,13 @@
     });
 
     // =========================
-    //  DASHBOARD (classificazione points)
+    //  DASHBOARD
     // =========================
     const dashBtn    = document.getElementById('toggleDashboard');
     const dashPanel  = document.getElementById('dashboardPanel');
     const chartSvg   = document.getElementById('chart');
     const legendDiv  = document.getElementById('chartLegend');
     const dashTitle  = document.getElementById('dashTitle');
-
-    dashBtn.addEventListener('click', ()=>{
-      const show = dashPanel.style.display !== 'block';
-      dashPanel.style.display = show ? 'block' : 'none';
-      if (show) updateDashboard();
-      setTimeout(()=>{ if (show) updateDashboard(); }, 50);
-    });
-
-    window.addEventListener('resize', ()=>{
-      if (dashPanel.style.display === 'block') updateDashboard();
-    });
 
     function getCounts(){
       const counts = new Map();
@@ -1415,12 +1361,6 @@
         counts.set(k, (counts.get(k)||0) + 1);
       });
       return Array.from(counts.entries()).sort((a,b) => b[1] - a[1]);
-    }
-
-    function updateDashboard(){
-      const data = getCounts();
-      renderBars(data);
-      renderLegendChips(data);
     }
 
     function renderLegendChips(data){
@@ -1498,6 +1438,25 @@
       });
     }
 
+    function updateDashboard(){
+      const data = getCounts();
+      renderBars(data);
+      renderLegendChips(data);
+    }
+
+    dashBtn.addEventListener('click', ()=>{
+      const show = dashPanel.style.display !== 'block';
+      dashPanel.style.display = show ? 'block' : 'none';
+      if (show) {
+        updateDashboard();
+        setTimeout(updateDashboard, 50);
+      }
+    });
+
+    window.addEventListener('resize', ()=>{
+      if (dashPanel.style.display === 'block') updateDashboard();
+    });
+
     // =========================
     //  LABELS
     // =========================
@@ -1525,25 +1484,22 @@
     });
 
     // =========================
-    //  AVVIO
+    //  MENU & STATO INIZIALE
     // =========================
+    document.getElementById('btnLegacyList')?.addEventListener('click', openAccuracyModal);
+    document.getElementById('btnClearSelection')?.addEventListener('click', clearSelection);
+
+    // avvio
     loadSupabasePoints();
     updateSelectionInfo();
-    dashTitle.textContent = `Distribuzione punti per ${currentClassField}`;
+    document.getElementById('dashTitle').textContent =
+      `Distribuzione punti per ${currentClassField}`;
 
-    try {
-      console.assert(typeof L !== 'undefined', 'Leaflet presente');
-      console.assert(map instanceof L.Map, 'Mappa inizializzata');
-      console.assert(typeof supabase !== 'undefined', 'Supabase client presente');
-      console.assert(typeof loadSupabasePoints === 'function', 'Funzione loadSupabasePoints definita');
-    } catch (e) {
-      console.warn('Self-test warning:', e);
-    }
-
-    window.addEventListener('error', function(e){
+    console.log('Uniss Soil WebGIS inizializzato');
+    window.addEventListener('error', (e)=>{
       console.warn('JS error:', e.message, e.filename + ':' + e.lineno);
     });
+  });
   </script>
 </body>
 </html>
-
