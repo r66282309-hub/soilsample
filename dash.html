@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Soil Dashboard Mobile</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root{
+      --bg:#020617;
+      --bg-soft:#0b1120;
+      --card:#0b1224;
+      --card2:#0a1020;
+      --accent:#22c55e;
+      --accent-soft: rgba(34,197,94,.14);
+      --text:#e5e7eb;
+      --text-soft:#9ca3af;
+      --border: rgba(31,41,55,.9);
+      --shadow: 0 18px 45px rgba(15,23,42,.78);
+      --r: 18px;
+
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bot: env(safe-area-inset-bottom, 0px);
+    }
+
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%}
+    body{
+      font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background: radial-gradient(circle at top, #111827 0, #020617 55%);
+      color:var(--text);
+      padding: calc(14px + var(--safe-top)) 14px calc(14px + var(--safe-bot));
+      overflow-x:hidden;
+    }
+
+    .wrap{max-width:520px;margin:0 auto}
+
+    header{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:12px;
+      padding: 6px 2px 12px;
+    }
+    .title{
+      font-size:1.25rem;
+      font-weight:800;
+      letter-spacing:.2px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.08);
+      color: var(--accent);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .sub{
+      color:var(--text-soft);
+      font-size:.85rem;
+      margin-top:3px;
+    }
+
+    /* KPI */
+    .kpi-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .kpi{
+      background: radial-gradient(circle at top left, #0f172a 0, #020617 62%);
+      border:1px solid rgba(15,23,42,.85);
+      border-radius: var(--r);
+      padding: 12px 12px 10px;
+      box-shadow: 0 10px 40px rgba(15,23,42,.62);
+      min-height: 92px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      gap:6px;
+    }
+    .kpi .label{
+      font-size:.70rem;
+      text-transform:uppercase;
+      letter-spacing:.10em;
+      color:var(--text-soft);
+    }
+    .kpi .value{
+      font-size:1.45rem;
+      font-weight:750;
+      line-height:1.1;
+    }
+    .kpi .value.tiny{
+      font-size:.95rem;
+      font-weight:650;
+      color:var(--text);
+      opacity:.95;
+    }
+    .kpi .hint{
+      font-size:.78rem;
+      color:var(--text-soft);
+    }
+
+    /* Actions */
+    .actions{
+      margin-top: 14px;
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:10px;
+    }
+    .btn{
+      appearance:none;
+      border:none;
+      width:100%;
+      text-align:left;
+      border-radius: 16px;
+      padding: 14px 14px;
+      background: linear-gradient(180deg, rgba(34,197,94,.12), rgba(34,197,94,.05));
+      border: 1px solid rgba(34,197,94,.22);
+      color: var(--text);
+      box-shadow: 0 12px 34px rgba(15,23,42,.55);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      cursor:pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active{transform: translateY(1px)}
+    .btn .left{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .btn .t{
+      font-weight:750;
+      letter-spacing:.2px;
+    }
+    .btn .d{
+      font-size:.84rem;
+      color:var(--text-soft);
+    }
+    .btn .arrow{
+      width:34px;height:34px;border-radius:12px;
+      display:grid;place-items:center;
+      background: rgba(34,197,94,.10);
+      border: 1px solid rgba(34,197,94,.22);
+      color: var(--accent);
+      font-size: 18px;
+      flex: 0 0 auto;
+    }
+
+    /* Panels (full screen overlays) */
+    .panel{
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at top, #0b1120 0, #020617 60%);
+      transform: translateY(12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: .18s ease;
+      display:flex;
+      flex-direction:column;
+      padding: calc(12px + var(--safe-top)) 12px calc(12px + var(--safe-bot));
+      z-index: 1000;
+    }
+    .panel.open{
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .panel-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding: 4px 4px 10px;
+    }
+    .panel-title{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .panel-title .h{
+      font-size:1.05rem;
+      font-weight:800;
+      letter-spacing:.2px;
+    }
+    .panel-title .p{
+      font-size:.82rem;
+      color:var(--text-soft);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .close{
+      appearance:none;
+      border:none;
+      background: rgba(148,163,184,.10);
+      border: 1px solid rgba(148,163,184,.18);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-weight:700;
+      cursor:pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .panel-body{
+      flex:1 1 auto;
+      min-height:0;
+      border-radius: var(--r);
+      border:1px solid var(--border);
+      background: rgba(2,6,23,.45);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+
+    /* Charts panel */
+    .charts{
+      height:100%;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      padding:12px;
+      overflow:auto;
+    }
+    .chart-card{
+      background: rgba(11,17,32,.72);
+      border:1px solid rgba(31,41,55,.85);
+      border-radius: 16px;
+      padding: 12px;
+    }
+    .chart-card .ct{
+      font-weight:750;
+      font-size:.95rem;
+      margin-bottom:8px;
+    }
+    canvas{ width:100% !important; height: 240px !important; }
+
+    /* Map panel */
+    #map{
+      width:100%;
+      height:100%;
+    }
+
+    /* List panel */
+    .list-wrap{
+      height:100%;
+      display:flex;
+      flex-direction:column;
+    }
+    .list-top{
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(31,41,55,.85);
+      display:flex;
+      gap:10px;
+      align-items:center;
+      background: rgba(11,17,32,.72);
+    }
+    .search{
+      flex:1 1 auto;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      background: rgba(2,6,23,.55);
+      border:1px solid rgba(31,41,55,.9);
+      border-radius: 14px;
+      padding: 10px 12px;
+      color: var(--text);
+    }
+    .search input{
+      width:100%;
+      border:none;
+      outline:none;
+      background:transparent;
+      color:var(--text);
+      font-size:.95rem;
+    }
+    .list{
+      flex:1 1 auto;
+      overflow:auto;
+      padding: 10px 10px 14px;
+    }
+    .row{
+      border:1px solid rgba(31,41,55,.85);
+      background: rgba(11,17,32,.58);
+      border-radius: 16px;
+      padding: 12px 12px;
+      margin-bottom: 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    .row .name{
+      font-weight:800;
+      letter-spacing:.2px;
+    }
+    .row .meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      color:var(--text-soft);
+      font-size:.85rem;
+    }
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: .76rem;
+      background: rgba(34,197,94,.10);
+      border: 1px solid rgba(34,197,94,.22);
+      color: var(--accent);
+    }
+    .dot{
+      width:8px;height:8px;border-radius:999px;background: var(--accent);
+      display:inline-block;
+    }
+
+    /* small helper */
+    .muted{color:var(--text-soft)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">Soil Dashboard <span class="pill">mobile</span></div>
+      </div>
+    </header>
+
+    <!-- KPI -->
+    <section class="kpi-grid" aria-label="Contatori">
+      <div class="kpi">
+        <div class="label">Punti totali</div>
+        <div id="kpi-total" class="value">–</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Ultimi 7 giorni</div>
+        <div id="kpi-week" class="value">–</div>
+        <div class="hint">Nuovi punti</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Progetti</div>
+        <div id="kpi-projects" class="value">–</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Data ultimo inserimento</div>
+        <div id="kpi-last" class="value tiny">–</div>
+      </div>
+    </section>
+
+    <!-- Actions -->
+    <section class="actions" aria-label="Navigazione">
+      <button class="btn" id="openCharts" type="button">
+        <div class="left">
+          <div class="t">Apri grafici</div>
+          <div class="d">Progetto · Land cover</div>
+        </div>
+        <div class="arrow">›</div>
+      </button>
+
+      <button class="btn" id="openMap" type="button">
+        <div class="left">
+          <div class="t">Apri mappa</div>
+          <div class="d">Punti (colore = land cover)</div>
+        </div>
+        <div class="arrow">›</div>
+      </button>
+
+      <button class="btn" id="openList" type="button">
+        <div class="left">
+          <div class="t">Apri elenco</div>
+          <div class="d">Ultimi 200 · ricerca rapida</div>
+        </div>
+        <div class="arrow">›</div>
+      </button>
+    </section>
+  </div>
+
+  <!-- PANEL: CHARTS -->
+  <section class="panel" id="panelCharts" aria-hidden="true">
+    <div class="panel-head">
+      <div class="panel-title">
+        <div class="h">Grafici</div>
+        <div class="p">Punti per progetto · Punti per land cover</div>
+      </div>
+      <button class="close" data-close="panelCharts" type="button">Chiudi</button>
+    </div>
+    <div class="panel-body">
+      <div class="charts">
+        <div class="chart-card">
+          <div class="ct">Punti per progetto</div>
+          <canvas id="chartByProject"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="ct">Punti per land cover</div>
+          <canvas id="chartByLand"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PANEL: MAP -->
+  <section class="panel" id="panelMap" aria-hidden="true">
+    <div class="panel-head">
+      <div class="panel-title">
+        <div class="h">Mappa</div>
+        <div class="p">Colore = land cover · tap sui punti per popup</div>
+      </div>
+      <button class="close" data-close="panelMap" type="button">Chiudi</button>
+    </div>
+    <div class="panel-body">
+      <div id="map"></div>
+    </div>
+  </section>
+
+  <!-- PANEL: LIST -->
+  <section class="panel" id="panelList" aria-hidden="true">
+    <div class="panel-head">
+      <div class="panel-title">
+        <div class="h">Elenco</div>
+        <div class="p">Ricerca su nome/progetto/land cover</div>
+      </div>
+      <button class="close" data-close="panelList" type="button">Chiudi</button>
+    </div>
+    <div class="panel-body">
+      <div class="list-wrap">
+        <div class="list-top">
+          <div class="search" title="Cerca">
+            <span class="muted">🔎</span>
+            <input id="searchInput" type="search" placeholder="Cerca…" />
+          </div>
+        </div>
+        <div class="list" id="listContainer">
+          <div class="muted" style="padding:12px;">Caricamento…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- JS libs -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // 🔑 Supabase
+    const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // UI state
+    let allPoints = [];
+    let chartByProject = null;
+    let chartByLand = null;
+
+    // Map state
+    let map = null;
+    let pointsLayer = null;
+    let mapReady = false;
+
+    // 🎨 Palette
+    const PALETTE = ['#22c55e','#3b82f6','#eab308','#f97316','#f43f5e','#8b5cf6','#14b8a6','#ec4899','#10b981','#6366f1'];
+    const getPaletteColor = (i) => PALETTE[i % PALETTE.length];
+    let landCoverColorMap = {};
+
+    // ---- Panels
+    function openPanel(id){
+      const el = document.getElementById(id);
+      el.classList.add('open');
+      el.setAttribute('aria-hidden','false');
+      document.body.style.overflow = 'hidden';
+
+      // Fix specific content after open
+      if (id === 'panelMap') {
+        // Lazy init
+        ensureMap();
+        // Leaflet needs invalidateSize after container visible
+        setTimeout(() => { map.invalidateSize(true); }, 60);
+      }
+    }
+
+    function closePanel(id){
+      const el = document.getElementById(id);
+      el.classList.remove('open');
+      el.setAttribute('aria-hidden','true');
+
+      // if no panels open, restore scroll
+      const anyOpen = document.querySelector('.panel.open');
+      if (!anyOpen) document.body.style.overflow = '';
+    }
+
+    // Close buttons + ESC + tap outside? (solo bottone + ESC)
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-close]');
+      if (btn) closePanel(btn.getAttribute('data-close'));
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.panel.open').forEach(p => closePanel(p.id));
+      }
+    });
+
+    document.getElementById('openCharts').addEventListener('click', () => openPanel('panelCharts'));
+    document.getElementById('openMap').addEventListener('click', () => openPanel('panelMap'));
+    document.getElementById('openList').addEventListener('click', () => openPanel('panelList'));
+
+    // ---- Data
+    async function loadPoints(){
+      const { data, error } = await supabaseClient
+        .from('points')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Errore nel caricamento points:', error);
+        return [];
+      }
+      return data || [];
+    }
+
+    function updateKpis(points){
+      document.getElementById('kpi-total').textContent = points.length;
+
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
+      const weekCount = points.filter(p => p.created_at && new Date(p.created_at) >= weekAgo).length;
+      document.getElementById('kpi-week').textContent = weekCount;
+
+      const projectSet = new Set(points.map(p => p.progetto).filter(v => v));
+      document.getElementById('kpi-projects').textContent = projectSet.size;
+
+      if (points[0]?.created_at) {
+        const last = new Date(points[0].created_at);
+        document.getElementById('kpi-last').textContent = last.toISOString().slice(0,19).replace('T',' ');
+      } else {
+        document.getElementById('kpi-last').textContent = '–';
+      }
+    }
+
+    function groupCount(points, field){
+      const counts = {};
+      for (const p of points){
+        const key = p[field] || 'N.D.';
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return counts;
+    }
+
+    function updateCharts(points){
+      const projectCounts = groupCount(points, 'progetto');
+      const landCounts = groupCount(points, 'land_cover');
+
+      const projLabels = Object.keys(projectCounts);
+      const projData = Object.values(projectCounts);
+
+      const landLabels = Object.keys(landCounts);
+      const landData = Object.values(landCounts);
+
+      const ctxProj = document.getElementById('chartByProject').getContext('2d');
+      const ctxLand = document.getElementById('chartByLand').getContext('2d');
+
+      if (chartByProject) chartByProject.destroy();
+      if (chartByLand) chartByLand.destroy();
+
+      const projColors = projLabels.map((_, i) => getPaletteColor(i));
+
+      chartByProject = new Chart(ctxProj, {
+        type: 'bar',
+        data: { labels: projLabels, datasets: [{ data: projData, backgroundColor: projColors, borderColor: projColors, borderWidth: 1 }] },
+        options: {
+          responsive: true,
+          plugins: { legend: { display:false } },
+          scales: {
+            x: { ticks: { color:'#9ca3af' } },
+            y: { ticks: { color:'#9ca3af' }, beginAtZero:true }
+          }
+        }
+      });
+
+      landCoverColorMap = {};
+      const landColors = landLabels.map((label, i) => {
+        const c = getPaletteColor(i);
+        landCoverColorMap[label] = c;
+        return c;
+      });
+
+      chartByLand = new Chart(ctxLand, {
+        type: 'bar',
+        data: { labels: landLabels, datasets: [{ data: landData, backgroundColor: landColors, borderColor: landColors, borderWidth: 1 }] },
+        options: {
+          responsive: true,
+          plugins: { legend: { display:false } },
+          scales: {
+            x: { ticks: { color:'#9ca3af' } },
+            y: { ticks: { color:'#9ca3af' }, beginAtZero:true }
+          }
+        }
+      });
+    }
+
+    // ---- Map
+    function ensureMap(){
+      if (mapReady) return;
+      mapReady = true;
+
+      map = L.map('map', { center:[40.0, 9.0], zoom:7, zoomControl:true });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      pointsLayer = L.layerGroup().addTo(map);
+
+      // Render current points (if already loaded)
+      if (allPoints.length) updateMap(allPoints);
+    }
+
+    function updateMap(points){
+      if (!map || !pointsLayer) return;
+      pointsLayer.clearLayers();
+
+      const coords = [];
+
+      for (const p of points){
+        const lat = p.lat;
+        const lon = p.lon;
+        if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+
+        coords.push([lat, lon]);
+
+        const lc = p.land_cover || 'N.D.';
+        const color = landCoverColorMap[lc] || '#6366f1';
+
+        const marker = L.circleMarker([lat, lon], {
+          radius: 4,
+          weight: 1,
+          color: color,
+          fillColor: color,
+          fillOpacity: 0.85
+        });
+
+        const proj = p.progetto || 'N.D.';
+        const name = p.name || 'Punto';
+
+        marker.bindPopup(
+          `<strong>${name}</strong><br>` +
+          `<strong>Progetto:</strong> ${proj}<br>` +
+          `<strong>Land cover:</strong> ${lc}`
+        );
+
+        marker.addTo(pointsLayer);
+      }
+
+      if (coords.length){
+        map.fitBounds(L.latLngBounds(coords), { padding:[20,20] });
+      }
+    }
+
+    // ---- List
+    function renderList(points){
+      const container = document.getElementById('listContainer');
+      container.innerHTML = '';
+
+      if (!points.length){
+        container.innerHTML = '<div class="muted" style="padding:12px;">Nessun dato.</div>';
+        return;
+      }
+
+      points.forEach(p => {
+        const lc = p.land_cover || 'N.D.';
+        const proj = p.progetto || 'N.D.';
+        const name = p.name || 'Punto';
+        const date = p.created_at ? new Date(p.created_at).toISOString().slice(0,10) : '–';
+        const color = landCoverColorMap[lc] || '#6366f1';
+
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="name">${escapeHtml(name)}</div>
+          <div class="meta">
+            <span class="tag"><span class="dot" style="background:${color}"></span>${escapeHtml(lc)}</span>
+            <span class="muted">•</span>
+            <span>${escapeHtml(proj)}</span>
+            <span class="muted">•</span>
+            <span>${date}</span>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function escapeHtml(str){
+      return String(str).replace(/[&<>"']/g, (m) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[m]));
+    }
+
+    function wireSearch(){
+      const input = document.getElementById('searchInput');
+      input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        const base = allPoints.slice(0, 200); // elenco snello per mobile
+        if (!q) return renderList(base);
+
+        const filtered = base.filter(p => {
+          const s = `${p.name||''} ${p.progetto||''} ${p.land_cover||''}`.toLowerCase();
+          return s.includes(q);
+        });
+        renderList(filtered);
+      });
+    }
+
+    async function init(){
+      allPoints = await loadPoints();
+      updateKpis(allPoints);
+      updateCharts(allPoints);
+
+      // Prepara colori landCoverColorMap (già fatto da updateCharts).
+      // Se per qualche motivo non ci sono land cover, evita mappa vuota di colori:
+      if (!Object.keys(landCoverColorMap).length) {
+        landCoverColorMap = { 'N.D.': '#6366f1' };
+      }
+
+      // List: render (latest 200) + search
+      renderList(allPoints.slice(0, 200));
+      wireSearch();
+
+      // Map: lazy init solo quando apri panelMap, ma se vuoi pre-caricare commenta la riga sotto:
+      // ensureMap();
+      // updateMap(allPoints);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
+ 
+ 
