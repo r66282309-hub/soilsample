@@ -2,7 +2,11 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+  <!-- ✅ BLOCCA ZOOM PAGINA (WebView/App Inventor) ma NON lo zoom interno Leaflet -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+
   <title>Soil Dashboard Mobile</title>
 
   <!-- Leaflet CSS -->
@@ -34,6 +38,9 @@
       color:var(--text);
       padding: calc(14px + var(--safe-top)) 14px calc(14px + var(--safe-bot));
       overflow-x:hidden;
+      /* ✅ evita "rimbalzi" strani e zoom impliciti */
+      overscroll-behavior: contain;
+      -webkit-text-size-adjust: 100%;
     }
 
     .wrap{max-width:520px;margin:0 auto}
@@ -254,6 +261,9 @@
     #map{
       width:100%;
       height:100%;
+      /* ✅ importantissimo: evita che il pinch provochi zoom pagina;
+         Leaflet gestisce pan/pinch internamente */
+      touch-action: none;
     }
 
     /* List panel */
@@ -335,6 +345,7 @@
     .muted{color:var(--text-soft)}
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <header>
@@ -462,6 +473,27 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
+    /* ✅ EXTRA: blocca doppio-tap zoom della pagina fuori dalla mappa (senza toccare Leaflet) */
+    (() => {
+      let lastTap = 0;
+      document.addEventListener('touchend', (e) => {
+        // se tocchi dentro la mappa, non interferire
+        if (e.target.closest && e.target.closest('#map')) return;
+
+        const now = Date.now();
+        if (now - lastTap < 300) e.preventDefault();
+        lastTap = now;
+      }, { passive: false });
+
+      // blocca gesture zoom "tipo iOS" (se la WebView le supporta)
+      document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
+      document.addEventListener('gesturechange', e => e.preventDefault(), { passive: false });
+      document.addEventListener('gestureend', e => e.preventDefault(), { passive: false });
+
+      // blocca ctrl+wheel (desktop)
+      window.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, { passive:false });
+    })();
+
     // 🔑 Supabase
     const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
@@ -489,11 +521,8 @@
       el.setAttribute('aria-hidden','false');
       document.body.style.overflow = 'hidden';
 
-      // Fix specific content after open
       if (id === 'panelMap') {
-        // Lazy init
         ensureMap();
-        // Leaflet needs invalidateSize after container visible
         setTimeout(() => { map.invalidateSize(true); }, 60);
       }
     }
@@ -503,12 +532,10 @@
       el.classList.remove('open');
       el.setAttribute('aria-hidden','true');
 
-      // if no panels open, restore scroll
       const anyOpen = document.querySelector('.panel.open');
       if (!anyOpen) document.body.style.overflow = '';
     }
 
-    // Close buttons + ESC + tap outside? (solo bottone + ESC)
     document.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-close]');
       if (btn) closePanel(btn.getAttribute('data-close'));
@@ -622,6 +649,7 @@
       if (mapReady) return;
       mapReady = true;
 
+      // ✅ lascia zoom libero nella mappa (touch + wheel + dblclick)
       map = L.map('map', { center:[40.0, 9.0], zoom:7, zoomControl:true });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -631,7 +659,6 @@
 
       pointsLayer = L.layerGroup().addTo(map);
 
-      // Render current points (if already loaded)
       if (allPoints.length) updateMap(allPoints);
     }
 
@@ -719,7 +746,7 @@
       const input = document.getElementById('searchInput');
       input.addEventListener('input', () => {
         const q = input.value.trim().toLowerCase();
-        const base = allPoints.slice(0, 200); // elenco snello per mobile
+        const base = allPoints.slice(0, 200);
         if (!q) return renderList(base);
 
         const filtered = base.filter(p => {
@@ -735,24 +762,15 @@
       updateKpis(allPoints);
       updateCharts(allPoints);
 
-      // Prepara colori landCoverColorMap (già fatto da updateCharts).
-      // Se per qualche motivo non ci sono land cover, evita mappa vuota di colori:
       if (!Object.keys(landCoverColorMap).length) {
         landCoverColorMap = { 'N.D.': '#6366f1' };
       }
 
-      // List: render (latest 200) + search
       renderList(allPoints.slice(0, 200));
       wireSearch();
-
-      // Map: lazy init solo quando apri panelMap, ma se vuoi pre-caricare commenta la riga sotto:
-      // ensureMap();
-      // updateMap(allPoints);
     }
 
     document.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
 </html>
- 
- 
