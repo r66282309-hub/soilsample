@@ -233,11 +233,6 @@
       color: #f9fafb;
       text-shadow: 0 1px 2px rgba(0,0,0,0.9);
       line-height: 1.2;
-      /* (facoltativo) se vuoi FORZARE una sola riga, decommenta:
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      */
     }
 
     #profile-info {
@@ -277,6 +272,41 @@
         flex-direction: column;
       }
     }
+
+    /* ===== EXPORT BIANCO (solo per html2canvas clone) ===== */
+    .export-white {
+      background: #ffffff !important;
+      color: #000000 !important;
+    }
+
+    .export-white .viz-title,
+.export-white #profile-info,
+.export-white .depth-label {
+  color: #000000 !important;
+  text-shadow: none !important;
+}
+/* scritte dentro gli orizzonti: ROSSO (forzato anche sui figli) */
+.export-white .horizon-label,
+.export-white .horizon-label strong,
+.export-white .horizon-label span {
+  color: #94eaff !important; /* rosso */
+  text-shadow: 0 1px 2px rgba(0,0,0,0.65) !important;
+}
+
+    .export-white #depth-scale {
+      color: #000000 !important;
+      border-right-color: #000000 !important;
+    }
+
+    .export-white .depth-tick {
+      background: #000000 !important;
+    }
+
+    .export-white .viz-box,
+    .export-white #profile {
+      background: #ffffff !important;
+      border-color: #000000 !important;
+    }
   </style>
 </head>
 <body>
@@ -288,10 +318,11 @@
     <!-- Pannello form orizzonti -->
     <div class="panel">
       <h2>Orizzonti</h2>
-<div style="margin-bottom:10px;">
-  <label for="profile-name">Nome profilo</label>
-  <input id="profile-name" type="text" placeholder="es. LOC727" />
-</div>
+
+      <div style="margin-bottom:10px;">
+        <label for="profile-name">Nome profilo</label>
+        <input id="profile-name" type="text" placeholder="es. LOC727" />
+      </div>
 
       <div class="form-row">
         <div>
@@ -315,15 +346,9 @@
       </div>
 
       <div class="buttons-row">
-        <button class="btn-primary" id="btn-add">
-          ➕ Aggiungi orizzonte
-        </button>
-        <button class="btn-secondary" id="btn-clear">
-          🗑 Svuota elenco
-        </button>
-        <button class="btn-secondary" id="btn-demo">
-          🧪 Carica esempio
-        </button>
+        <button class="btn-primary" id="btn-add">➕ Aggiungi orizzonte</button>
+        <button class="btn-secondary" id="btn-clear">🗑 Svuota elenco</button>
+        <button class="btn-secondary" id="btn-demo">🧪 Carica esempio</button>
       </div>
 
       <table class="horizons-table" id="horizons-table">
@@ -341,11 +366,8 @@
       </table>
       <div id="empty-msg" class="empty-message">Nessun orizzonte inserito.</div>
 
-      <!-- Bottone genera -->
       <div class="buttons-row" style="margin-top:10px;">
-        <button class="btn-primary" id="btn-draw">
-          🎨 Disegna profilo
-        </button>
+        <button class="btn-primary" id="btn-draw">🎨 Disegna profilo</button>
       </div>
     </div>
 
@@ -356,7 +378,7 @@
       <div class="viz-row">
         <!-- BOX 2D -->
         <div class="viz-box" id="box-2d">
-          <div class="viz-title" id="title-2d"> </div>
+          <div class="viz-title" id="title-2d"></div>
           <div class="profile-wrapper" id="profile-wrapper">
             <div id="depth-scale"></div>
             <div id="profile"></div>
@@ -369,7 +391,7 @@
 
         <!-- BOX 3D -->
         <div class="viz-box" id="box-3d">
-          <div class="viz-title" id="title-3d"> </div>
+          <div class="viz-title" id="title-3d"></div>
           <div id="profile-3d"></div>
           <div class="buttons-row" style="margin-top:8px;">
             <button class="btn-secondary" id="btn-export-3d">📷 Esporta 3D</button>
@@ -433,12 +455,6 @@
       }
     }
 
-    function munsellToRgbCss(code) {
-      const { rgb } = munsellRgbArray(code);
-      const [r, g, b] = rgb;
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-
     function darken(rgb, factor) {
       return rgb.map(v => Math.max(0, Math.round(v * factor)));
     }
@@ -462,26 +478,27 @@
 
       const ctx = canvas.getContext("2d");
 
-      // sfondo
+      // sfondo (resta scuro in app; nell'export usi background html2canvas bianco)
       ctx.fillStyle = "#020617";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const x0 = 70;        // angolo alto sinistro faccia frontale
+      const x0 = 70;
       const y0 = 40;
       const frontW = 90;
       const frontH = 140;
-      const dx = 40;        // spostamento prospettico
+      const dx = 40;
       const dy = -25;
 
-      // scala profondità sul 3D
-      const step = total <= 80 ? 10 : 20;
+      const totalDepth = total;
+      const step = totalDepth <= 80 ? 10 : 20;
+
       ctx.font = "10px system-ui";
       ctx.fillStyle = "#9ca3af";
       ctx.strokeStyle = "#9ca3af";
       ctx.lineWidth = 1;
 
-      for (let d = 0; d <= total; d += step) {
-        const y = y0 + (frontH * d / total);
+      for (let d = 0; d <= totalDepth; d += step) {
+        const y = y0 + (frontH * d / totalDepth);
         ctx.beginPath();
         ctx.moveTo(x0 - 6, y);
         ctx.lineTo(x0 - 1, y);
@@ -489,14 +506,13 @@
         ctx.fillText(d + " cm", x0 - 40, y + 3);
       }
 
-      // disegno orizzonti
       let cumDepth = 0;
       horizons.forEach((h, i) => {
         const topDepth    = cumDepth;
         const bottomDepth = cumDepth + h.thick;
 
-        const yTop    = y0 + frontH * (topDepth    / total);
-        const yBottom = y0 + frontH * (bottomDepth / total);
+        const yTop    = y0 + frontH * (topDepth    / totalDepth);
+        const yBottom = y0 + frontH * (bottomDepth / totalDepth);
 
         const { rgb: baseRgb } = munsellRgbArray(h.munsell);
         const sideRgb = darken(baseRgb, 0.8);
@@ -506,7 +522,6 @@
         const sideColor  = `rgb(${sideRgb[0]},${sideRgb[1]},${sideRgb[2]})`;
         const topColor   = `rgb(${topRgb[0]},${topRgb[1]},${topRgb[2]})`;
 
-        // lato destro
         ctx.beginPath();
         ctx.moveTo(x0 + frontW,      yTop);
         ctx.lineTo(x0 + frontW + dx, yTop + dy);
@@ -516,13 +531,11 @@
         ctx.fillStyle = sideColor;
         ctx.fill();
 
-        // faccia frontale
         ctx.beginPath();
         ctx.rect(x0, yTop, frontW, yBottom - yTop);
         ctx.fillStyle = frontColor;
         ctx.fill();
 
-        // faccia superiore solo per il primo orizzonte (superficie)
         if (i === 0) {
           ctx.beginPath();
           ctx.moveTo(x0,          yTop);
@@ -537,11 +550,9 @@
         cumDepth += h.thick;
       });
 
-      // contorni del parallelepipedo
       ctx.strokeStyle = "rgba(15,23,42,0.9)";
       ctx.lineWidth = 1.2;
 
-      // fronte
       ctx.beginPath();
       ctx.moveTo(x0,          y0);
       ctx.lineTo(x0 + frontW, y0);
@@ -550,15 +561,13 @@
       ctx.closePath();
       ctx.stroke();
 
-      // top
       ctx.beginPath();
-      ctx.moveTo(x0,              y0);
-      ctx.lineTo(x0 + dx,         y0 + dy);
+      ctx.moveTo(x0,               y0);
+      ctx.lineTo(x0 + dx,          y0 + dy);
       ctx.lineTo(x0 + frontW + dx, y0 + dy);
-      ctx.lineTo(x0 + frontW,     y0);
+      ctx.lineTo(x0 + frontW,      y0);
       ctx.stroke();
 
-      // lato destro
       ctx.beginPath();
       ctx.moveTo(x0 + frontW,      y0);
       ctx.lineTo(x0 + frontW + dx, y0 + dy);
@@ -571,20 +580,20 @@
       profileDiv.innerHTML = "";
       depthScaleDiv.innerHTML = "";
       profileInfo.innerHTML = "";
-	  const profileNameInput = document.getElementById("profile-name");
-const profileName = profileNameInput.value.trim();
 
-const title2d = document.getElementById("title-2d");
-const title3d = document.getElementById("title-3d");
+      const profileNameInput = document.getElementById("profile-name");
+      const profileName = profileNameInput.value.trim();
 
-if (profileName) {
-  title2d.textContent = profileName + "  ";
-  title3d.textContent = profileName + "  ";
-} else {
-  title2d.textContent = "Profilo 2D";
-  title3d.textContent = "Profilo 3D";
-}
+      const title2d = document.getElementById("title-2d");
+      const title3d = document.getElementById("title-3d");
 
+      if (profileName) {
+        title2d.textContent = profileName;
+        title3d.textContent = profileName;
+      } else {
+        title2d.textContent = "Profilo 2D";
+        title3d.textContent = "Profilo 3D";
+      }
 
       if (!horizons.length) {
         profileInfo.textContent = "Inserisci almeno un orizzonte e premi “Disegna profilo”.";
@@ -608,7 +617,6 @@ if (profileName) {
         const label = document.createElement("div");
         label.className = "horizon-label";
 
-        /* ✅ MODIFICA: tutto su una riga (niente <br>) */
         const parts = [
           `<strong>${h.name || "–"}</strong> · ${h.thick} cm`,
           h.texture ? `${h.texture}` : "",
@@ -631,6 +639,7 @@ if (profileName) {
 
       for (let d = 0; d <= totalDepth; d += step) {
         const y = (d / totalDepth) * profHeight;
+
         const tick = document.createElement("div");
         tick.className = "depth-tick";
         tick.style.top = `${y}px`;
@@ -649,7 +658,6 @@ if (profileName) {
       renderProfile3D();
     }
 
-    // --- Eventi form ---
     document.getElementById("btn-add").addEventListener("click", () => {
       const name       = document.getElementById("h-name").value.trim();
       const thickVal   = document.getElementById("h-thick").value;
@@ -689,8 +697,7 @@ if (profileName) {
     document.getElementById("btn-demo").addEventListener("click", () => {
       horizons = [
         { name: "1", thick: 25, munsell: "7.5YR 4/4", texture: "Franco Sabbioso" },
-        { name: "2", thick: 40, munsell: "10YR 3/3",  texture: "Franco Argilloso" },
-        { name: "3", thick: 50, munsell: "7.5YR 4/6", texture: "Sabbioso" }
+        { name: "Bw", thick: 30, munsell: "5.5YR 4/1.5", texture: "" }
       ];
       updateTable();
       renderProfile();
@@ -698,15 +705,16 @@ if (profileName) {
 
     document.getElementById("btn-draw").addEventListener("click", renderProfile);
 
-    // export 2D (senza bottoni)
+    // export 2D (senza bottoni) - SFONDO BIANCO + TESTI NERI
     document.getElementById("btn-export-2d").addEventListener("click", () => {
       const box2d = document.getElementById("box-2d");
       html2canvas(box2d, {
-        backgroundColor: null,
+        backgroundColor: "#ffffff",
         scale: 2,
         onclone: docClone => {
           const clone = docClone.getElementById("box-2d");
           if (clone) {
+            clone.classList.add("export-white");
             clone.querySelectorAll("button").forEach(b => b.style.display = "none");
             clone.style.paddingTop = "16px";
             clone.style.paddingBottom = "16px";
@@ -720,15 +728,16 @@ if (profileName) {
       });
     });
 
-    // export 3D (senza bottoni)
+    // export 3D (senza bottoni) - SFONDO BIANCO + TESTI NERI
     document.getElementById("btn-export-3d").addEventListener("click", () => {
       const box3d = document.getElementById("box-3d");
       html2canvas(box3d, {
-        backgroundColor: null,
+        backgroundColor: "#ffffff",
         scale: 2,
         onclone: docClone => {
           const clone = docClone.getElementById("box-3d");
           if (clone) {
+            clone.classList.add("export-white");
             clone.querySelectorAll("button").forEach(b => b.style.display = "none");
             clone.style.paddingTop = "16px";
             clone.style.paddingBottom = "16px";
