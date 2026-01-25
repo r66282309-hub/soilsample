@@ -233,6 +233,11 @@
       color: #f9fafb;
       text-shadow: 0 1px 2px rgba(0,0,0,0.9);
       line-height: 1.2;
+      /* (facoltativo) se vuoi FORZARE una sola riga, decommenta:
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      */
     }
 
     #profile-info {
@@ -283,6 +288,10 @@
     <!-- Pannello form orizzonti -->
     <div class="panel">
       <h2>Orizzonti</h2>
+<div style="margin-bottom:10px;">
+  <label for="profile-name">Nome profilo</label>
+  <input id="profile-name" type="text" placeholder="es. LOC727" />
+</div>
 
       <div class="form-row">
         <div>
@@ -347,7 +356,7 @@
       <div class="viz-row">
         <!-- BOX 2D -->
         <div class="viz-box" id="box-2d">
-          <div class="viz-title">Profilo 2D</div>
+          <div class="viz-title" id="title-2d"> </div>
           <div class="profile-wrapper" id="profile-wrapper">
             <div id="depth-scale"></div>
             <div id="profile"></div>
@@ -360,7 +369,7 @@
 
         <!-- BOX 3D -->
         <div class="viz-box" id="box-3d">
-          <div class="viz-title">Profilo 3D</div>
+          <div class="viz-title" id="title-3d"> </div>
           <div id="profile-3d"></div>
           <div class="buttons-row" style="margin-top:8px;">
             <button class="btn-secondary" id="btn-export-3d">📷 Esporta 3D</button>
@@ -562,6 +571,20 @@
       profileDiv.innerHTML = "";
       depthScaleDiv.innerHTML = "";
       profileInfo.innerHTML = "";
+	  const profileNameInput = document.getElementById("profile-name");
+const profileName = profileNameInput.value.trim();
+
+const title2d = document.getElementById("title-2d");
+const title3d = document.getElementById("title-3d");
+
+if (profileName) {
+  title2d.textContent = profileName + "  ";
+  title3d.textContent = profileName + "  ";
+} else {
+  title2d.textContent = "Profilo 2D";
+  title3d.textContent = "Profilo 3D";
+}
+
 
       if (!horizons.length) {
         profileInfo.textContent = "Inserisci almeno un orizzonte e premi “Disegna profilo”.";
@@ -584,12 +607,19 @@
 
         const label = document.createElement("div");
         label.className = "horizon-label";
+
+        /* ✅ MODIFICA: tutto su una riga (niente <br>) */
+        const parts = [
+          `<strong>${h.name || "–"}</strong> · ${h.thick} cm`,
+          h.texture ? `${h.texture}` : "",
+          h.munsell ? `<span style="opacity:0.8;">${h.munsell}</span>` : ""
+        ].filter(Boolean);
+
         label.innerHTML = `
-          <strong>${h.name || "–"}</strong> · ${h.thick} cm<br>
-          ${h.texture ? h.texture + "<br>" : ""}
-          <span style="opacity:0.8;">${h.munsell || ""}</span>
-          ${h.munsell && !valid ? '<br><span class="badge badge-error">Codice Munsell non valido</span>' : ""}
+          ${parts.join(" · ")}
+          ${h.munsell && !valid ? ' <span class="badge badge-error">Codice Munsell non valido</span>' : ""}
         `;
+
         div.appendChild(label);
         profileDiv.appendChild(div);
       });
@@ -677,7 +707,6 @@
         onclone: docClone => {
           const clone = docClone.getElementById("box-2d");
           if (clone) {
-            // nasconde tutti i bottoni nel clone
             clone.querySelectorAll("button").forEach(b => b.style.display = "none");
             clone.style.paddingTop = "16px";
             clone.style.paddingBottom = "16px";
@@ -718,4 +747,3 @@
   </script>
 </body>
 </html>
-
