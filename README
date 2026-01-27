@@ -1,0 +1,12 @@
+## Main application
+
+The main web-based application (WebGIS) is provided by:
+
+- `index.html`
+
+The soil profile visualization tool is available at:
+
+- `profile.html`
+
+Other HTML files in the repository are auxiliary pages, demos, or experimental components.
+
