@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Viewer</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Supabase (UMD v2) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Screenshot (PNG) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ozangokhanhergul/leaflet-simple-map-screenshoter@0.4.4/dist/leaflet-simple-map-screenshoter.css">
+  <script src="https://cdn.jsdelivr.net/npm/@ozangokhanhergul/leaflet-simple-map-screenshoter@0.4.4/dist/leaflet-simple-map-screenshoter.js"></script>
+
+  <style>
+    :root{
+      --bg:#ffffff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --surface:#f8fafc;
+      --shadow:0 6px 18px rgba(2,6,23,.12); --radius:12px;
+    }
+    html, body { height:100%; margin:0; }
+    body{ display:flex; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--ink); }
+
+    #sidebar{
+      width:360px; max-width:420px;
+      background:var(--surface);
+      border-right:1px solid var(--line);
+      padding:12px; box-sizing:border-box;
+      overflow:auto;
+    }
+    #map{ flex:1; }
+
+    h2{ margin:0 0 10px; font-size:16px; }
+    .card{
+      background:#fff; border:1px solid var(--line); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:10px; margin-bottom:10px;
+    }
+    label{ display:block; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+    select, input[type="number"], input[type="search"], input[type="text"]{
+      width:100%; padding:7px 8px; border:1px solid var(--line); border-radius:10px;
+      background:var(--surface); box-sizing:border-box; font-size:13px;
+    }
+    input[type="color"]{
+      width:46px; height:34px; padding:0; border:1px solid var(--line);
+      border-radius:10px; background:#fff;
+    }
+    button{
+      width:100%; margin-top:8px; padding:8px 10px;
+      border:1px solid var(--line); border-radius:10px;
+      background:#fff; cursor:pointer; font-weight:700;
+      box-shadow:var(--shadow);
+    }
+    button:hover{ background:#eff6ff; }
+    button.secondary{ background:var(--surface); box-shadow:none; font-weight:700; }
+
+    .row{ display:flex; gap:8px; align-items:center; }
+    .muted{ font-size:12px; color:var(--muted); white-space:pre-wrap; }
+    .hr{ height:1px; background:var(--line); margin:10px 0; }
+
+    .cat{
+      display:grid; grid-template-columns: 1fr auto; gap:8px;
+      border:1px solid var(--line); border-radius:12px; padding:8px;
+      background:var(--surface);
+      margin-top:8px;
+    }
+    .cat .k{ font-weight:800; font-size:13px; }
+    .cat .meta{ font-size:11px; color:var(--muted); margin-top:2px; }
+    .cat .controls{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    .miniSel{ width:120px; }
+    .miniNum{ width:84px; }
+
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      font-size:12px; background:#fff; border:1px solid var(--line);
+      border-radius:999px; padding:4px 8px;
+    }
+
+    @media (max-width: 860px){
+      body{ flex-direction:column; }
+      #sidebar{ width:100%; max-width:none; border-right:none; border-bottom:1px solid var(--line); }
+      #map{ height:60vh; }
+    }
+  </style>
+</head>
+<body>
+  <aside id="sidebar">
+    <h2>Viewer</h2>
+
+    <div class="card">
+      <div class="muted">Tabella Supabase: <code>points</code> (name, lat, lon, land_cover, progetto)</div>
+      <button id="btnReload" type="button">Ricarica punti</button>
+      <button id="btnExport" type="button">Esporta immagine (PNG)</button>
+      <div id="status" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <span class="pill" id="countPill">0 punti</span>
+        <span class="pill" id="classPill">Classificazione: nessuna</span>
+      </div>
+
+      <div class="hr"></div>
+
+      <label>Basemap</label>
+      <div class="muted">Cambia dal controllo in alto a destra (OSM / Esri Satellite).</div>
+
+      <div class="hr"></div>
+
+      <label>Stile globale (default)</label>
+      <div class="row">
+        <select id="defShape" class="miniSel">
+          <option value="circle">Cerchio</option>
+          <option value="square">Quadrato</option>
+          <option value="triangle">Triangolo</option>
+        </select>
+        <input id="defColor" type="color" value="#2563eb" title="Colore">
+        <input id="defSize" class="miniNum" type="number" min="8" max="48" value="18" title="Dimensione (px)">
+      </div>
+      <div class="muted" style="margin-top:6px;">La dimensione è in pixel. Tutto ciò che non ha override usa questo stile.</div>
+
+      <div class="hr"></div>
+
+      <label>Classifica per attributo</label>
+      <select id="classField">
+        <option value="none" selected>Nessuna (solo default)</option>
+        <option value="name">name</option>
+        <option value="land_cover">land_cover</option>
+        <option value="progetto">progetto</option>
+      </select>
+
+      <label>Filtro categorie (facoltativo)</label>
+      <input id="catFilter" type="search" placeholder="Cerca categoria…" />
+
+      <div class="row">
+        <button id="btnApplyDefaultAll" type="button" class="secondary">Applica default a tutte</button>
+        <button id="btnResetOverrides" type="button" class="secondary">Reset override</button>
+      </div>
+
+      <div id="catWrap"></div>
+    </div>
+  </aside>
+
+  <div id="map"></div>
+
+<script>
+window.addEventListener('load', async () => {
+  // =========================
+  // CONFIG
+  // =========================
+  const START_VIEW = [40.0, 9.0];
+  const START_ZOOM = 8;
+
+  const SUPABASE_URL = 'https://bvdabdniussqmjjxvrdb.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZGFiZG5pdXNzcW1qanh2cmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzNjMwMTAsImV4cCI6MjA3NzkzOTAxMH0.pMKdERP0lygqVoYSsEI4eH60BYcXr5QwJNhxf1ZUddM';
+  const TABLE = 'points';
+
+  // =========================
+  // DOM
+  // =========================
+  const statusEl = document.getElementById('status');
+  const countPill = document.getElementById('countPill');
+  const classPill = document.getElementById('classPill');
+  const catWrap = document.getElementById('catWrap');
+  const catFilter = document.getElementById('catFilter');
+
+  const log = (s)=> statusEl.textContent = s || '';
+
+  // =========================
+  // MAP
+  // =========================
+  const map = L.map('map').setView(START_VIEW, START_ZOOM);
+
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, crossOrigin: true, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const esri = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, crossOrigin: true, attribution: 'Esri World Imagery' }
+  );
+
+  L.control.layers({ 'OSM': osm, 'Esri Satellite': esri }, {}, { collapsed:false }).addTo(map);
+
+  const pointsLayer = L.layerGroup().addTo(map);
+
+  // Screenshot (PNG)
+  const screenshoter = L.simpleMapScreenshoter({
+    hidden: true,
+    filename: 'uniss_points',
+    preventDownload: false
+  }).addTo(map);
+
+  // =========================
+  // Supabase
+  // =========================
+  let supabase = null;
+  try{
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  } catch(e){
+    console.error(e);
+    log('Supabase init error: ' + e.message);
+    return;
+  }
+
+  // =========================
+  // STATE
+  // =========================
+  let pointsData = [];         // raw rows
+  const markers = new Map();   // id -> marker
+
+  const defaultStyle = { shape:'circle', size:18, color:'#2563eb' };
+  let classField = 'none';
+
+  // override per categoria (chiave: categoria string)
+  const styleByCategory = new Map();
+
+  function escapeHtml(s){
+    return String(s ?? '')
+      .replaceAll('&','&amp;').replaceAll('<','&lt;')
+      .replaceAll('>','&gt;').replaceAll('"','&quot;')
+      .replaceAll("'","&#039;");
+  }
+
+  function validLatLon(lat, lon){
+    return Number.isFinite(lat) && Number.isFinite(lon) && lat>=-90 && lat<=90 && lon>=-180 && lon<=180;
+  }
+
+  function buildId(row){
+    // id stabile per aggiornare marker senza ricrearli
+    const lat = Number(row.lat), lon = Number(row.lon);
+    const n = String(row.name || '').trim().slice(0,80);
+    return `${lat.toFixed(6)},${lon.toFixed(6)}|${n}`;
+  }
+
+  // =========================
+  // SVG ICONS (circle/square/triangle)
+  // =========================
+  function svgIcon(shape, size, color){
+    const s = Math.max(8, Math.min(64, Number(size) || 18));
+    const stroke = '#0b1220';
+    const sw = Math.max(1.2, s * 0.08);
+
+    let svg = '';
+    if (shape === 'square'){
+      const pad = sw;
+      const side = s - 2*pad;
+      svg = `<rect x="${pad}" y="${pad}" width="${side}" height="${side}"
+              rx="${Math.max(2, s*0.12)}"
+              fill="${color}" stroke="${stroke}" stroke-width="${sw}"/>`;
+    } else if (shape === 'triangle'){
+      const pad = sw;
+      const p1 = `${s/2},${pad}`;
+      const p2 = `${s-pad},${s-pad}`;
+      const p3 = `${pad},${s-pad}`;
+      svg = `<polygon points="${p1} ${p2} ${p3}" fill="${color}"
+             stroke="${stroke}" stroke-width="${sw}" />`;
+    } else {
+      const r = (s/2) - sw;
+      svg = `<circle cx="${s/2}" cy="${s/2}" r="${r}" fill="${color}"
+             stroke="${stroke}" stroke-width="${sw}" />`;
+    }
+
+    const html = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
+        ${svg}
+      </svg>
+    `;
+
+    return L.divIcon({
+      className: '',
+      html,
+      iconSize: [s, s],
+      iconAnchor: [s/2, s/2],
+      popupAnchor: [0, -s/2]
+    });
+  }
+
+  // =========================
+  // CLASSIFICATION / STYLING
+  // =========================
+  function getCategory(row){
+    if (classField === 'none') return null;
+    const v = row?.[classField];
+    const k = (v == null || String(v).trim()==='') ? '(n/d)' : String(v).trim();
+    return k;
+  }
+
+  function styleForRow(row){
+    const cat = getCategory(row);
+    if (!cat) return defaultStyle;
+    return styleByCategory.get(cat) || defaultStyle;
+  }
+
+  function ensureCategoryStyles(){
+    if (classField === 'none') return;
+    const cats = new Set();
+    for (const r of pointsData){
+      const c = getCategory(r);
+      if (c) cats.add(c);
+    }
+    for (const c of cats){
+      if (!styleByCategory.has(c)){
+        styleByCategory.set(c, { ...defaultStyle });
+      }
+    }
+  }
+
+  function setPills(){
+    countPill.textContent = `${pointsData.length} punti`;
+    classPill.textContent = `Classificazione: ${classField === 'none' ? 'nessuna' : classField}`;
+  }
+
+  // =========================
+  // DRAW / UPDATE MARKERS
+  // =========================
+  function clearAll(){
+    pointsLayer.clearLayers();
+    markers.clear();
+  }
+
+  function addMarker(row){
+    const lat = Number(row.lat), lon = Number(row.lon);
+    if (!validLatLon(lat, lon)) return;
+
+    const st = styleForRow(row);
+    const icon = svgIcon(st.shape, st.size, st.color);
+
+    const m = L.marker([lat, lon], { icon }).addTo(pointsLayer);
+    m.bindPopup(`
+      <b>${escapeHtml(row.name || '(senza nome)')}</b><br>
+      land_cover: ${escapeHtml(row.land_cover || '')}<br>
+      progetto: ${escapeHtml(row.progetto || '')}<br>
+      <small>${lat.toFixed(6)}, ${lon.toFixed(6)}</small>
+    `);
+
+    markers.set(buildId(row), m);
+  }
+
+  function redrawAll(){
+    clearAll();
+    for (const row of pointsData) addMarker(row);
+    setPills();
+  }
+
+  function refreshStylesOnly(){
+    // aggiorna icone senza ricreare marker/popup
+    for (const row of pointsData){
+      const id = buildId(row);
+      const m = markers.get(id);
+      if (!m) continue;
+      const st = styleForRow(row);
+      m.setIcon(svgIcon(st.shape, st.size, st.color));
+    }
+  }
+
+  // =========================
+  // CATEGORY EDITOR UI
+  // =========================
+  function renderCategoryEditor(){
+    catWrap.innerHTML = '';
+
+    if (classField === 'none'){
+      catWrap.innerHTML = `<div class="muted" style="margin-top:8px;">Nessuna classificazione attiva.</div>`;
+      return;
+    }
+
+    ensureCategoryStyles();
+
+    const q = (catFilter.value || '').toLowerCase().trim();
+    const catsAll = Array.from(styleByCategory.keys()).sort((a,b)=>a.localeCompare(b,'it'));
+    const cats = q ? catsAll.filter(c => c.toLowerCase().includes(q)) : catsAll;
+
+    if (!cats.length){
+      catWrap.innerHTML = `<div class="muted" style="margin-top:8px;">Nessuna categoria trovata.</div>`;
+      return;
+    }
+
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.style.marginTop = '8px';
+    hint.textContent = `Override per categoria (${catsAll.length} totali).`;
+    catWrap.appendChild(hint);
+
+    for (const cat of cats){
+      const st = styleByCategory.get(cat) || { ...defaultStyle };
+
+      const el = document.createElement('div');
+      el.className = 'cat';
+
+      const left = document.createElement('div');
+      left.innerHTML = `<div class="k">${escapeHtml(cat)}</div><div class="meta">scegli simbolo/colore/dimensione</div>`;
+
+      const right = document.createElement('div');
+      right.className = 'controls';
+      right.innerHTML = `
+        <select class="miniSel">
+          <option value="circle">Cerchio</option>
+          <option value="square">Quadrato</option>
+          <option value="triangle">Triangolo</option>
+        </select>
+        <input type="color" />
+        <input class="miniNum" type="number" min="8" max="48" />
+      `;
+
+      const sel = right.querySelector('select');
+      const col = right.querySelector('input[type="color"]');
+      const num = right.querySelector('input[type="number"]');
+
+      sel.value = st.shape;
+      col.value = st.color;
+      num.value = st.size;
+
+      sel.addEventListener('change', ()=>{
+        styleByCategory.set(cat, { ...styleByCategory.get(cat), shape: sel.value });
+        refreshStylesOnly();
+      });
+      col.addEventListener('input', ()=>{
+        styleByCategory.set(cat, { ...styleByCategory.get(cat), color: col.value });
+        refreshStylesOnly();
+      });
+      num.addEventListener('change', ()=>{
+        const v = Math.max(8, Math.min(48, Number(num.value) || defaultStyle.size));
+        num.value = v;
+        styleByCategory.set(cat, { ...styleByCategory.get(cat), size: v });
+        refreshStylesOnly();
+      });
+
+      el.appendChild(left);
+      el.appendChild(right);
+      catWrap.appendChild(el);
+    }
+  }
+
+  // =========================
+  // LOAD DATA
+  // =========================
+  async function loadPoints(){
+    log('Carico da Supabase…');
+
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('name,lat,lon,land_cover,progetto')
+      .limit(5000);
+
+    if (error){
+      console.error(error);
+      log('ERRORE Supabase:\n' + (error.message || '') + '\n\nTipico: RLS/policy o key errata.');
+      alert('Errore Supabase: ' + (error.message || ''));
+      return;
+    }
+
+    pointsData = data || [];
+
+    // ricostruisci categorie per campo selezionato
+    styleByCategory.clear();
+    if (classField !== 'none') ensureCategoryStyles();
+
+    redrawAll();
+    renderCategoryEditor();
+
+    log(`OK: ${pointsData.length} punti caricati.`);
+
+    // zoom bounds
+    if (pointsData.length){
+      const ll = pointsData
+        .map(r=>[Number(r.lat), Number(r.lon)])
+        .filter(a=>validLatLon(a[0],a[1]));
+      if (ll.length) map.fitBounds(L.latLngBounds(ll).pad(0.15));
+    }
+  }
+
+  // =========================
+  // UI EVENTS
+  // =========================
+  const defShape = document.getElementById('defShape');
+  const defColor = document.getElementById('defColor');
+  const defSize  = document.getElementById('defSize');
+
+  defShape.addEventListener('change', ()=>{
+    defaultStyle.shape = defShape.value;
+    // aggiorna tutti (default e chi usa default)
+    refreshStylesOnly();
+    // aggiorna anche editor (per nuove categorie non ancora create)
+  });
+
+  defColor.addEventListener('input', ()=>{
+    defaultStyle.color = defColor.value;
+    refreshStylesOnly();
+  });
+
+  defSize.addEventListener('change', ()=>{
+    defaultStyle.size = Math.max(8, Math.min(48, Number(defSize.value) || 18));
+    defSize.value = defaultStyle.size;
+    refreshStylesOnly();
+  });
+
+  const classFieldSel = document.getElementById('classField');
+  classFieldSel.addEventListener('change', ()=>{
+    classField = classFieldSel.value;
+    styleByCategory.clear();
+    if (classField !== 'none') ensureCategoryStyles();
+    setPills();
+    redrawAll();
+    renderCategoryEditor();
+  });
+
+  catFilter.addEventListener('input', renderCategoryEditor);
+
+  document.getElementById('btnApplyDefaultAll').addEventListener('click', ()=>{
+    if (classField === 'none') return;
+    ensureCategoryStyles();
+    for (const k of styleByCategory.keys()){
+      styleByCategory.set(k, { ...defaultStyle });
+    }
+    renderCategoryEditor();
+    refreshStylesOnly();
+  });
+
+  document.getElementById('btnResetOverrides').addEventListener('click', ()=>{
+    styleByCategory.clear();
+    if (classField !== 'none') ensureCategoryStyles();
+    renderCategoryEditor();
+    refreshStylesOnly();
+  });
+
+  document.getElementById('btnReload').addEventListener('click', loadPoints);
+
+  document.getElementById('btnExport').addEventListener('click', async ()=>{
+    try{
+      log('Export PNG… (se fallisce: prova OSM, può essere CORS tiles)');
+      await screenshoter.takeScreen('map');
+      log('PNG esportato.');
+    } catch(e){
+      console.error(e);
+      log('Export fallito.\nProbabile CORS/tainted canvas.\nProva con OSM come basemap.');
+      alert('Export fallito (probabile CORS/tainted canvas). Prova con OSM.');
+    }
+  });
+
+  // =========================
+  // START
+  // =========================
+  setPills();
+  await loadPoints();
+});
+</script>
+</body>
+</html>
